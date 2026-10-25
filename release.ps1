@@ -5,7 +5,7 @@
 #    then tools\release\finish-dist.ps1 adds the source zip, notes, test report and checksums)
 #   .\release.ps1 -DryRun               show what every step would do; changes nothing anywhere
 #   .\release.ps1                       publish the version in windows\Directory.Build.props
-#   .\release.ps1 -Version 0.1.1        publish (or finish publishing) an already-built version
+#   .\release.ps1 -Version 0.1.2        publish (or finish publishing) an already-built version
 #   .\release.ps1 -From release         carry on from a step, once every earlier step is recorded as complete
 #   .\release.ps1 -NoPublish            run the local steps only
 #

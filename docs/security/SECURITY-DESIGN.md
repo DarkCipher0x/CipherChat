@@ -34,6 +34,37 @@ volume; an owner who certifies the wrong person without comparing the safety num
 * **Key separation.** Every use has its own label (`dcx-chat/v1/...`) as the ML-DSA context, the Ed25519 prefix, the
   HKDF info or the AES-GCM AAD; a signature or key from one context is refused in every other.
 
+## 2a. Forward secrecy and its limits
+
+What stays post-quantum, and what doesn't, over the life of a conversation:
+
+* **Every key change is post-quantum.** CipherChat has no Double Ratchet and no classical-only step. A room's key
+  (its "epoch", PROTOCOL.md §5) is a fresh random 32-byte key, wrapped separately for each member with hybrid
+  ML-KEM-1024 + X25519, and replaced when members change, weekly and on request. Each message has its own key derived
+  from the room key. A conversation that has run for a year is exactly as post-quantum as on its first day: an
+  adversary recording traffic today can't recover a room key later without breaking both ML-KEM-1024 and X25519.
+* **Forward secrecy is per key period, not per message.** Room keys are wrapped to each member's long-term
+  identity encryption key (the `kem_pq` / `kem_ec` keys in their identity bundle), not to short-lived keys. So if a
+  member's identity secret is ever stolen (from a device while it's unlocked, or from their sealed backup together
+  with both their passphrase and the server's key share, §4), the thief can unwrap **every room key that member was
+  given that the server still holds**, and read the messages under them. Signal-style protocols limit this to a few
+  messages; CipherChat limits it only by:
+  * **retention**: a room with a retention period deletes old messages, and with them the room keys no remaining
+    message needs (rooms without one keep history until deleted);
+  * **resetting the identity** (`/reset-identity`): a new identity makes the old secret useless for anything new,
+    though not for wraps already stored.
+* **Recovery after a compromise.** A stolen room key is useless from the next key change on (members, weekly, or on
+  request). A stolen identity secret isn't: the thief can also unwrap future room keys until that person resets their
+  identity and the owner certifies the new one.
+* **Calls** wrap per-call sender keys the same way. The server keeps call signals only in memory (60 s), so a later
+  identity theft exposes a past call only if someone also recorded its signals at the time (a malicious server or
+  the server's own TLS endpoint).
+
+Why it's built this way: one identity per person, rebuilt on every device from the sealed backup, means history and
+new devices simply work, and the web chat needs nothing stored in the browser. The cost is coarser forward secrecy.
+The planned change (short-lived post-quantum device prekeys, so a stolen identity no longer opens stored room keys)
+is in [PREKEYS-DESIGN.md](../PREKEYS-DESIGN.md); until it ships, this section is the honest statement of the limit.
+
 ## 3. Identity and trust
 
 The owner's identity is the only root. Each member compares a 60-digit safety number with the owner once and pins

@@ -28,14 +28,14 @@ open so anyone can check it does what it says.
 | **Add-ons & connectors** | signed post-quantum add-on API, CommandCentre connector, .NET SDK | `windows/src/CipherChat.Addons`, `CipherChat.Connector` — guide: [docs/ADDONS.md](docs/ADDONS.md) |
 | Mac / iOS | planned, same protocol | [docs/MAC-IOS-HANDOFF.md](docs/MAC-IOS-HANDOFF.md) |
 
-## Downloads (release 0.1.1)
+## Downloads (release 0.1.2)
 
 | File | What |
 |---|---|
-| `CipherChat-0.1.1-Setup.exe` | Windows app, themed installer (the MSI beside it is for administrators: `msiexec`, GPO, Intune) |
-| `cipherchat-server-0.1.1-linux.tar.gz` | Linux server: `tar xzf …; sudo sh cipherchat-server-0.1.1/install.sh` |
-| `CipherChat-0.1.1.apk` | Android app, signed (certificate SHA-256 in `android-signing-certificate.sha256`) |
-| `CipherChat-Connector-0.1.1-win-x64.zip` | add-on connectors: CommandCentre (and any MCP system) in the chat — [docs/ADDONS.md](docs/ADDONS.md) |
+| `CipherChat-0.1.2-Setup.exe` | Windows app, themed installer (the MSI beside it is for administrators: `msiexec`, GPO, Intune) |
+| `cipherchat-server-0.1.2-linux.tar.gz` | Linux server: `tar xzf …; sudo sh cipherchat-server-0.1.2/install.sh` |
+| `CipherChat-0.1.2.apk` | Android app, signed (certificate SHA-256 in `android-signing-certificate.sha256`) |
+| `CipherChat-Connector-0.1.2-win-x64.zip` | add-on connectors: CommandCentre (and any MCP system) in the chat — [docs/ADDONS.md](docs/ADDONS.md) |
 | `SHA256SUMS` | checksums of everything |
 
 ## Screenshots
@@ -62,6 +62,8 @@ call words, pairing more devices, passkeys (including Bitwarden).
 
 * Running a server (settings, email, notifications, roles and permissions): [docs/ADMIN.md](docs/ADMIN.md)
 * Design and guarantees: [SECURITY.md](SECURITY.md) and [docs/security/SECURITY-DESIGN.md](docs/security/SECURITY-DESIGN.md)
+  (§2a: what stays post-quantum over a conversation's life, and where forward secrecy stops; the planned fix is
+  [docs/PREKEYS-DESIGN.md](docs/PREKEYS-DESIGN.md))
 * Protocol specification: [docs/PROTOCOL.md](docs/PROTOCOL.md); calls: [docs/CALLS.md](docs/CALLS.md); cross-client
   interop: [docs/INTEROP.md](docs/INTEROP.md)
 * Penetration test and debug sweep: [docs/security/PENTEST-2026-10.md](docs/security/PENTEST-2026-10.md)
@@ -73,7 +75,7 @@ call words, pairing more devices, passkeys (including Bitwarden).
 | Server tests | `python3 -I server/tests/test_server.py` and `python3 -I server/tests/pentest_server.py` |
 | Windows (tests, then installers) | `cd windows; dotnet test` · `powershell -File windows\tools\build-installers.ps1` |
 | Android (tests, lint, signed APK) | `powershell -File android\tools\release.ps1` (key: `android\tools\new-release-key.ps1`, once ever) |
-| Linux release | `sh tools/build-linux-release.sh 0.1.1` (on Linux or WSL) |
+| Linux release | `sh tools/build-linux-release.sh 0.1.2` (on Linux or WSL) |
 | Web call tests | serve `web/` on 127.0.0.1 and open `/tests/calltest.html` |
 
 Requirements: .NET 8 SDK (Windows), JDK 21 + Android SDK 36 (`android/tools/env.ps1`), Python 3.10+ (server).
