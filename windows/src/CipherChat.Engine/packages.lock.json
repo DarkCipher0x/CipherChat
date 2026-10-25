@@ -10,7 +10,7 @@
       "cipherchat.api": {
         "type": "Project",
         "dependencies": {
-          "CipherChat.Transport": "[0.1.1, )"
+          "CipherChat.Transport": "[0.1.2, )"
         }
       },
       "cipherchat.crypto": {

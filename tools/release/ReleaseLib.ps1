@@ -99,8 +99,11 @@ function Invoke-PrivacyScan([string]$dir, [string[]]$files) {
     $termsFile = Join-Path $script:ToolsDir 'privacy-terms.local.txt'
     if (-not (Test-Path $termsFile)) { throw 'tools\privacy-terms.local.txt not found: the private names must be checked before anything is published' }
     $terms = @([IO.File]::ReadAllLines($termsFile) | Where-Object { $_.Trim().Length -gt 0 -and -not $_.StartsWith('#') } | ForEach-Object { $_.Trim() })
-    $termRx = @($terms | ForEach-Object { if ($_ -match '^\w+$') { '(?i)\b' + [regex]::Escape($_) + '\b' } else { '(?i)' + [regex]::Escape($_) } })
-    $termRx += '(?i)\b' + [regex]::Escape($env:USERNAME) + '\b'
+    # Plain substrings, any case, in every file (tests and fixtures too): the website's gate matches this way, and a
+    # private name can turn up by chance inside random base64 test data, which word boundaries wouldn't catch.
+    # A term written "word:<term>" matches whole words only, for a name that is also part of ordinary words.
+    $termRx = @($terms | ForEach-Object { if ($_ -like 'word:*') { '(?i)\b' + [regex]::Escape($_.Substring(5)) + '\b' } else { '(?i)' + [regex]::Escape($_) } })
+    $termRx += '(?i)' + [regex]::Escape($env:USERNAME)
     $binExt = '.png', '.ico', '.webp', '.jpg', '.dll', '.rtf', '.zip', '.exe', '.jar', '.woff2', '.bin', '.der'
     $hits = New-Object System.Collections.Generic.List[string]
     foreach ($f in $files) {

@@ -6,11 +6,11 @@
 d37d7a8775061228df6eea37639bf8954971af90dc1b745657073c78895973ae  web/public/cipherchat.svg
 ac13aa22ad728d22182a6aacbe5134821681ce381a7a197c07ceca5747932af3  windows/src/CipherChat.App/Assets/cipherchat-256.png
 e664f98e597b41045aa55213a9ab3de8dca1a30aef18b020c054e5efed80e0cd  windows/src/CipherChat.App/Assets/cipherchat.ico
-# Viewed 2026-10-25 (0.1.1): web chat screenshots from a throwaway demo server (demo people alex and sam only; no addresses, hosts or personal data).
-7fff55c45953ce76d33238e79c13e6c15d307c0631dcc669a3ed636a3b3f6284  docs/screenshots/chat.png
-ae110cee2976964e62de4a5daa26c13ad0d5ce5dfd879284f34f73beb1d0d103  docs/screenshots/emoji-picker.png
-44de822c48b5b1ba77f0b04791820460a3a4f9d3476597ca0e95b1df939ddf88  docs/screenshots/gif-picker.png
-06d64e6cf8c2969f233e749f41b4304b77c41a29f2f61c571f61cd3236408030  docs/screenshots/phone.png
+# Viewed 2026-10-25 (0.1.2): web chat screenshots from a throwaway demo server (demo people alex and sam only; no addresses, hosts or personal data).
+697f89ef7de307ac9553a2f9fdf93cf29292c8c3c6b25a1a19a231f663799902  docs/screenshots/chat.png
+d8a9d006af7a3e05cd32275668386303a93d0e04f4c5467ad72f1a842a87a1b0  docs/screenshots/emoji-picker.png
+f781d868a074f58db6607146102f0542bd02b5b5a71c2f8a11abbd9057c61538  docs/screenshots/gif-picker.png
+9d314f91b283f849bbaec335cf7293e2b15857962f3e5a91fa965ce9ccaa1423  docs/screenshots/phone.png
 c10393601caf178e90f672510795f6253bb29d432c5479648bbce64a9329002c  docs/screenshots/sign-in.png
-533f4ecf7f621fee0f2f6f7dcbd75bf15896ce7c9d23cd8111af8b5e34f40c81  docs/screenshots/text-size-140.png
+ead2fd47013a104ac292451ff0297c08b8ef54135597e31a2a301644376a4384  docs/screenshots/text-size-140.png
 7ed4436ffd6560b07e2db4832a5d7e1feab125b90c6d7a4a3152544842140a3b  docs/screenshots/unlock.png

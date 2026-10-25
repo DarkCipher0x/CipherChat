@@ -23,6 +23,11 @@ other clients re-derive the identities and must get identical bytes, then verify
 | `phone-made.json` | `InteropTest.phoneMakesAFixtureForTheBrowser` (Android, regenerated on every test run) | same folder |
 | `windows-made.json` | `InteropTests.WindowsMakesAFixtureForTheOthers` (writes `windows/tests/CipherChat.Crypto.Tests/interop/`) | copy it into the Android folder above |
 
+Fixtures hold fresh random bytes every time they're made, so ordinary test runs write the new ones into the build
+output (`bin/.../made/`, `android/core/crypto/build/interop-made/`) and the committed files only change on purpose:
+set `CIPHERCHAT_WRITE_FIXTURES=1` for that run, then check the result with the release's privacy scan before
+committing (random base64 can contain any word by chance).
+
 ## Running them
 
 ```powershell

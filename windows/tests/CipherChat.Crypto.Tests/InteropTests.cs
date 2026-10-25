@@ -14,6 +14,13 @@ namespace CipherChat.Crypto.Tests;
 /// </summary>
 public class InteropTests
 {
+    /// <summary>Where fixtures made by Windows go: the committed interop folder only when CIPHERCHAT_WRITE_FIXTURES=1
+    /// (they hold fresh random bytes, which must be checked before they're committed); otherwise the build output.</summary>
+    internal static string FixtureDir() =>
+        Environment.GetEnvironmentVariable("CIPHERCHAT_WRITE_FIXTURES") == "1"
+            ? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "interop"))
+            : Path.Combine(AppContext.BaseDirectory, "made");
+
     private static JsonObject Load(string name) =>
         (JsonObject)(Canon.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "interop", name))) ?? throw new InvalidOperationException(name));
 
@@ -78,8 +85,9 @@ public class InteropTests
                                          ["w_alice"] = ep.Pkg.W["alice"], ["key_sha3"] = Hex(Sha3_256(ep.Key)) },
             ["message"] = new JsonObject { ["room"] = room, ["epoch"] = 1, ["from"] = "dcx-admin", ["h"] = msg.H, ["c"] = msg.C, ["s"] = msg.S, ["text"] = text },
         };
-        // Written into the source tree so the browser check and the Android tests can open it
-        var dir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "interop"));
+        // Fresh randomness every run, so it goes into the build output; the committed copy the browser check and the
+        // Android tests open is only replaced on purpose (CIPHERCHAT_WRITE_FIXTURES=1, docs/INTEROP.md)
+        var dir = FixtureDir();
         Directory.CreateDirectory(dir);
         File.WriteAllText(Path.Combine(dir, "windows-made.json"), fixture.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
         // sanity: Windows opens its own fixture too

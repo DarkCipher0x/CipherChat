@@ -24,7 +24,7 @@ public sealed record AddonMessage(Room Room, ChatMessage Message)
 /// </summary>
 public sealed class AddonHost
 {
-    public const string UserAgent = "CipherChat-Addon/0.1.1";
+    public const string UserAgent = "CipherChat-Addon/0.1.2";
 
     private readonly ConnectorCode _code;
     private readonly RequestSigner _signer;

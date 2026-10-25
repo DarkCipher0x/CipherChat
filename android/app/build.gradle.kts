@@ -14,8 +14,8 @@ android {
         applicationId = "systems.darkcipher.cipherchat"
         minSdk = 31          // Android 12: StrongBox/TEE keys with per-use biometric or screen-lock authentication
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 3
+        versionName = "0.1.2"
     }
 
     signingConfigs {

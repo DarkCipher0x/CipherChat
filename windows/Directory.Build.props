@@ -22,7 +22,7 @@
     <Company>DarkCipher Systems</Company>
     <Product>CipherChat</Product>
     <Copyright>Copyright © 2026 DarkCipher Systems</Copyright>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>

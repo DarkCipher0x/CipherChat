@@ -1,6 +1,6 @@
 # CipherChat security design report
 
-Release 0.1.1, October 2026. Companion to [PROTOCOL.md](../PROTOCOL.md) (exact formats) and
+Release 0.1.2, October 2026. Companion to [PROTOCOL.md](../PROTOCOL.md) (exact formats) and
 [PENTEST-2026-10.md](PENTEST-2026-10.md) (what was attacked). Written for reviewers and for owners deciding whether
 CipherChat fits their threat model.
 

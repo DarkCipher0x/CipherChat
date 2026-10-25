@@ -3,7 +3,7 @@
 # listed with its role, the path it gets on the site, its size and SHA-256, and the GitHub Release asset it must equal
 # byte for byte. The release step runs this once the release is complete; -Draft writes it before GitHub exists (the
 # GitHub fields then say "pending"), for preparing the website kit.
-# Usage: .\tools\release\write-manifest.ps1 -Version 0.1.1 [-Draft]
+# Usage: .\tools\release\write-manifest.ps1 -Version 0.1.2 [-Draft]
 param([Parameter(Mandatory)][string]$Version, [switch]$Draft)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'ReleaseLib.ps1')

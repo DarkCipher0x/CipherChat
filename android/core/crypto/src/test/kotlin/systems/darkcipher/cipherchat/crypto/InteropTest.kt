@@ -80,7 +80,10 @@ class InteropTest {
                                            put("w_alice", ep.pkg.w.getValue("alice")); put("key_sha3", hex(sha3_256(ep.key))) })
             put("message", buildJsonObject { put("room", room); put("epoch", 1); put("from", "dcx-admin"); put("h", msg.h); put("c", msg.c); put("s", msg.s); put("text", text) })
         }
-        File(dir, "phone-made.json").writeText(fixture.toString())
+        // Fresh randomness every run: into the build folder, and into the committed fixtures only on purpose
+        // (CIPHERCHAT_WRITE_FIXTURES=1, docs/INTEROP.md), so a release never picks up an unchecked one
+        val out = if (System.getenv("CIPHERCHAT_WRITE_FIXTURES") == "1") dir else File("build/interop-made").apply { mkdirs() }
+        File(out, "phone-made.json").writeText(fixture.toString())
         // sanity: the phone opens its own fixture too
         assertEquals(text, Room.openMessage(room, 1, "dcx-admin", msg.h, msg.c, msg.s,
             Room.openEpoch(alice, a.fp, room, 1, "dcx-admin", ep.pkg.h, ep.pkg.s, ep.pkg.w["alice"], oPub).key, oPub).text)

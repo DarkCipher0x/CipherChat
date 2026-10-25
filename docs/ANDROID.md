@@ -5,11 +5,11 @@ CipherChat server, post-quantum end to end; the phone talks to the server only o
 
 ## Install
 
-Download `CipherChat-0.1.1.apk` and check it:
+Download `CipherChat-0.1.2.apk` and check it:
 
-* SHA-256 of the file: in `CipherChat-0.1.1.apk.sha256` (and `SHA256SUMS`);
+* SHA-256 of the file: in `CipherChat-0.1.2.apk.sha256` (and `SHA256SUMS`);
 * signing certificate SHA-256 `836CC51C98A1F3175A7AECE2B5A8C6779E90908F116042F6E9122C6D164C02F5`
-  (`apksigner verify --print-certs CipherChat-0.1.1.apk`). Every future update is signed with the same key; Android
+  (`apksigner verify --print-certs CipherChat-0.1.2.apk`). Every future update is signed with the same key; Android
   refuses an update signed by anyone else.
 
 Allow "Install unknown apps" for your browser or file manager when asked.

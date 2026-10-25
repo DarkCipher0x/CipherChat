@@ -15,8 +15,8 @@ CipherChat by DarkCipher Systems. Your own post-quantum end-to-end encrypted cha
 ## Install
 
 ```sh
-tar xzf cipherchat-server-0.1.1-linux.tar.gz
-sudo sh cipherchat-server-0.1.1/install.sh
+tar xzf cipherchat-server-0.1.2-linux.tar.gz
+sudo sh cipherchat-server-0.1.2/install.sh
 ```
 
 `install.sh` first checks every file against `SHA256SUMS` (a damaged or altered download is refused), then asks:

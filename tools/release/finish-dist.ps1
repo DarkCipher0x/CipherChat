@@ -6,7 +6,7 @@
 #   tests-<ver>.txt          a fresh run of the server, pentest, WebAuthn and Windows suites, plus the Android unit-test
 #                            results of the last Android build
 #   SHA256SUMS               rewritten over every file
-# Usage: powershell -ExecutionPolicy Bypass -File tools\release\finish-dist.ps1 [-Version 0.1.1] [-SkipTests]
+# Usage: powershell -ExecutionPolicy Bypass -File tools\release\finish-dist.ps1 [-Version 0.1.2] [-SkipTests]
 param([string]$Version, [switch]$SkipTests)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'ReleaseLib.ps1')

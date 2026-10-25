@@ -14,7 +14,7 @@ namespace CipherChat.App.Shell;
 /// </summary>
 public sealed class Session(Uri? devServer)
 {
-    public const string UserAgent = "CipherChat/0.1.1 (Windows)";
+    public const string UserAgent = "CipherChat/0.1.2 (Windows)";
 
     public VaultStore Vault { get; } = new();
     public VaultStore.Contents Saved { get; private set; } = new();

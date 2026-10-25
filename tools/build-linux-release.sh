@@ -2,7 +2,7 @@
 # CipherChat by DarkCipher Systems: the Linux server release, dist/<version>/cipherchat-server-<version>-linux.tar.gz
 # (run on Linux or in WSL from the repository root). The archive unpacks to cipherchat-server-<version>/ with install.sh
 # at the top; SHA256SUMS inside lists every file and install.sh checks it before doing anything.
-#     sh tools/build-linux-release.sh 0.1.1
+#     sh tools/build-linux-release.sh 0.1.2
 set -eu
 version=${1:?usage: build-linux-release.sh <version>}
 repo=$(cd "$(dirname "$0")/.." && pwd)

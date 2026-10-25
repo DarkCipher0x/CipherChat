@@ -43,7 +43,7 @@ public sealed class McpClient(string command, IReadOnlyList<string> args, TimeSp
             var init = await RequestAsync("initialize", new JsonObject
             {
                 ["protocolVersion"] = "2025-06-18", ["capabilities"] = new JsonObject(),
-                ["clientInfo"] = new JsonObject { ["name"] = "CipherChat Connector", ["version"] = "0.1.1" },
+                ["clientInfo"] = new JsonObject { ["name"] = "CipherChat Connector", ["version"] = "0.1.2" },
             }, ct, started: true).ConfigureAwait(false);
             await SendAsync(new JsonObject { ["jsonrpc"] = "2.0", ["method"] = "notifications/initialized" }).ConfigureAwait(false);
             var list = await RequestAsync("tools/list", new JsonObject(), ct, started: true).ConfigureAwait(false);

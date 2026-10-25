@@ -15,15 +15,15 @@
       "cipherchat.addons": {
         "type": "Project",
         "dependencies": {
-          "CipherChat.Engine": "[0.1.1, )",
-          "CipherChat.Transport": "[0.1.1, )",
+          "CipherChat.Engine": "[0.1.2, )",
+          "CipherChat.Transport": "[0.1.2, )",
           "System.Security.Cryptography.ProtectedData": "[8.0.0, )"
         }
       },
       "cipherchat.api": {
         "type": "Project",
         "dependencies": {
-          "CipherChat.Transport": "[0.1.1, )"
+          "CipherChat.Transport": "[0.1.2, )"
         }
       },
       "cipherchat.crypto": {
@@ -35,8 +35,8 @@
       "cipherchat.engine": {
         "type": "Project",
         "dependencies": {
-          "CipherChat.Api": "[0.1.1, )",
-          "CipherChat.Crypto": "[0.1.1, )"
+          "CipherChat.Api": "[0.1.2, )",
+          "CipherChat.Crypto": "[0.1.2, )"
         }
       },
       "cipherchat.transport": {

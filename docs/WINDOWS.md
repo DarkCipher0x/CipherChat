@@ -4,17 +4,17 @@ The CipherChat app for Windows (chat and calls) has a self-contained, 64-bit ins
 runs on Linux ([LINUX-SERVER.md](LINUX-SERVER.md)).
 
 > The installers aren't Authenticode-signed yet. Check the download against `SHA256SUMS`
-> (`Get-FileHash .\CipherChat-0.1.1-Setup.exe`). SmartScreen shows a warning ("More info" → "Run anyway"); on PCs with
+> (`Get-FileHash .\CipherChat-0.1.2-Setup.exe`). SmartScreen shows a warning ("More info" → "Run anyway"); on PCs with
 > **Smart App Control** turned on, unsigned programs are blocked outright until signed builds are published.
 
-## The app — `CipherChat-0.1.1-Setup.exe`
+## The app — `CipherChat-0.1.2-Setup.exe`
 
 Windows 10 version 2004 or later, or Windows 11. The setup offers a desktop shortcut and Microsoft Edge WebView2 (needed
-for calls; built into Windows 11). Administrators can deploy `CipherChat-0.1.1-x64.msi` instead:
+for calls; built into Windows 11). Administrators can deploy `CipherChat-0.1.2-x64.msi` instead:
 
 ```
-msiexec /i CipherChat-0.1.1-x64.msi /qn [INSTALLDESKTOPSHORTCUT=0] [INSTALLWEBVIEW2=0]
-msiexec /x CipherChat-0.1.1-x64.msi /qn [REMOVE_DATA=1]
+msiexec /i CipherChat-0.1.2-x64.msi /qn [INSTALLDESKTOPSHORTCUT=0] [INSTALLWEBVIEW2=0]
+msiexec /x CipherChat-0.1.2-x64.msi /qn [REMOVE_DATA=1]
 ```
 
 First start:

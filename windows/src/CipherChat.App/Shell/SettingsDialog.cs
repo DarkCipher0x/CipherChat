@@ -52,7 +52,7 @@ public static class SettingsDialog
         }, "DangerButton");
 
         d.Text("ABOUT", "Label");
-        d.Text("CipherChat 0.1.1 for Windows, by DarkCipher Systems. " + Hybrid.Suite + "; TLS 1.3 with X25519MLKEM768 only. Self-test: " +
+        d.Text("CipherChat 0.1.2 for Windows, by DarkCipher Systems. " + Hybrid.Suite + "; TLS 1.3 with X25519MLKEM768 only. Self-test: " +
                s.SelfTestResults.Count + "/" + s.SelfTestResults.Count + " checks passed (OpenSSL known answers).", "Caption");
 
         d.Cancel("Close");

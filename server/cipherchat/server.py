@@ -50,7 +50,7 @@ from urllib.parse import quote, unquote
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 ORIGIN = os.environ.get("CIPHERCHAT_ORIGIN", "http://127.0.0.1:8787").rstrip("/")
 NAME = (os.environ.get("CIPHERCHAT_NAME") or "CipherChat").strip()[:60]
 STATE_DIR = os.environ.get("CIPHERCHAT_STATE_DIR", "/var/lib/cipherchat")

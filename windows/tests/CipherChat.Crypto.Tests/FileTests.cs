@@ -70,7 +70,7 @@ public class FileTests
             var s = Files.Seal(Pattern(n));
             arr.Add(new JsonObject { ["size"] = s.Size, ["key"] = s.Key, ["sha3"] = s.Sha3, ["sealed"] = B64(s.Data), ["plain_sha3"] = Hex(Hybrid.Sha3_256(Pattern(n))) });
         }
-        var dir = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "interop"));
+        var dir = InteropTests.FixtureDir();                     // the build output unless CIPHERCHAT_WRITE_FIXTURES=1
         Directory.CreateDirectory(dir);
         File.WriteAllText(Path.Combine(dir, "windows-files.json"), new JsonObject { ["made_by"] = "CipherChat for Windows", ["pattern"] = "(i*7+3)%256", ["files"] = arr }.ToJsonString());
     }
