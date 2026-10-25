@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- CipherChat for Windows: the screens only (connect, unlock, chat, settings). Everything security-relevant lives in
+       the libraries below; this project renders their state and passes the person's choices back. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>CipherChat</AssemblyName>
+    <RootNamespace>CipherChat.App</RootNamespace>
+    <AssemblyTitle>CipherChat</AssemblyTitle>
+    <Description>CipherChat by DarkCipher Systems: end-to-end encrypted, post-quantum chat.</Description>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- made by tools/make-icon.ps1 from the brand mark; every window without its own icon uses this one -->
+    <ApplicationIcon>Assets\cipherchat.ico</ApplicationIcon>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <NoWarn>$(NoWarn);CA1001;CA2000;CA1515;CA1859</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CipherChat.Engine\CipherChat.Engine.csproj" />
+    <ProjectReference Include="..\CipherChat.Vault\CipherChat.Vault.csproj" />
+    <ProjectReference Include="..\CipherChat.Passkeys\CipherChat.Passkeys.csproj" />
+    <ProjectReference Include="..\CipherChat.Ui\CipherChat.Ui.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The call window: WebView2 (Microsoft's Edge engine, already on Windows 10/11) hosting the web portal's own call
+         code. The files below are copied from web/app at build time, so the app and the portal run the same code. -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="[1.0.4191.47]" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- the call screen's page is shared with the Android app (web/callhost) -->
+    <Content Include="..\..\..\web\callhost\**\*" Link="CallHost\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\..\web\app\crypto.js;..\..\..\web\app\kat.js;..\..\..\web\app\callcrypto.js;..\..\..\web\app\call.js;..\..\..\web\app\callworker.js;..\..\..\web\app\callui.js;..\..\..\web\app\glitch.js;..\..\..\web\app\term.js;..\..\..\web\app\chat.css"
+             Link="CallHost\app\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\..\web\app\vendor\**\*" Link="CallHost\app\vendor\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

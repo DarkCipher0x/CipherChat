@@ -1,0 +1,12 @@
+{
+  "_comment": "CipherChat release pipeline settings (release.ps1, docs/RELEASING.md). Public steps can be stopped at any time with the DCX_PUBLISH_OFF=1 environment variable.",
+  "app": "CipherChat",
+  "publicRemote": "https://github.com/DarkCipher0x/CipherChat.git",
+  "publicRepoApi": "https://api.github.com/repos/DarkCipher0x/CipherChat",
+  "publicClone": "../CipherChat-public",
+  "privateRemote": "https://github.com/DarkCipher0x/CipherChat-private.git",
+  "branch": "main",
+  "website": true,
+  "discord": true,
+  "discordChannel": "cipherchat"
+}

@@ -1,0 +1,101 @@
+# Every file that may be published (the public repository, the source zip, everything the website takes from it).
+# One pattern per line, relative to the project root, '/' separators: '*' matches within a folder, '**' any folders.
+# A file that matches no line here and no line in private-list.txt stops the build ("classify this file"), so nothing
+# is ever published or dropped without a decision. Build output, caches and toolchains are never considered
+# (tools\release\ReleaseLib.ps1 Get-TreeFiles).
+.gitignore
+LICENSE
+README.md
+SECURITY.md
+THIRD-PARTY-NOTICES.md
+docs/*.md
+docs/release-notes/*.md
+docs/security/*.md
+docs/screenshots/*.png
+# the server (Python standard library only) and its tests
+server/cipherchat/*.py
+server/tests/*.py
+# the Linux installer, units, nginx and coturn templates
+deploy/install.sh
+deploy/cipherchat-admin
+deploy/*.service
+deploy/*.timer
+deploy/cipherchat.env.example
+deploy/coturn/*.conf
+deploy/nginx/*.conf
+deploy/nginx/*.inc
+deploy/setup/*.py
+# the web chat, admin pages, call page and vendored audited crypto (with their licences)
+web/index.html
+web/**/*.html
+web/**/*.js
+web/**/*.mjs
+web/**/*.css
+web/**/*.json
+web/**/*.svg
+web/**/LICENSE
+# Windows: apps, server, connector, SDK, installers, tests
+windows/.config/dotnet-tools.json
+windows/CipherChat.sln
+windows/Directory.Build.props
+windows/README.md
+windows/global.json
+windows/nuget.config
+windows/src/**/*.cs
+windows/src/**/*.csproj
+windows/src/**/*.xaml
+windows/src/**/*.json
+windows/src/**/app.manifest
+windows/src/**/*.ico
+windows/src/**/*.png
+windows/tests/**/*.cs
+windows/tests/**/*.csproj
+windows/tests/**/*.json
+windows/installer/**/*.wxs
+windows/installer/**/*.wxi
+windows/installer/**/*.json
+windows/installer/**/*.rtf
+windows/installer/**/*.cs
+windows/installer/**/*.csproj
+windows/installer/**/*.xaml
+windows/installer/**/*.ico
+windows/installer/**/*.png
+windows/installer/**/*.config
+windows/installer/**/*.manifest
+windows/installer/**/*.md
+windows/tools/*.ps1
+# Android
+android/build.gradle.kts
+android/settings.gradle.kts
+android/gradle.properties
+android/gradlew
+android/gradlew.bat
+android/gradle/wrapper/gradle-wrapper.jar
+android/gradle/wrapper/gradle-wrapper.properties
+android/gradle/libs.versions.toml
+android/gradle/verification-metadata.xml
+android/**/build.gradle.kts
+android/**/proguard-rules.pro
+android/**/src/**/*.kt
+android/**/src/**/*.xml
+android/**/src/**/*.json
+android/**/src/**/*.jpg
+android/**/src/**/*.png
+android/**/src/**/*.webp
+android/**/src/**/*.js
+android/**/src/**/*.html
+android/**/src/**/*.css
+android/tools/release.ps1
+android/tools/new-release-key.ps1
+android/tools/env.ps1
+# build and release tooling
+tools/build-linux-release.sh
+tools/env.ps1
+tools/gen-emoji.ps1
+tools/public-allowlist.txt
+tools/private-list.txt
+tools/approved-images.txt
+tools/gitleaks.toml
+tools/release-config.json
+tools/release/*.ps1
+release.ps1

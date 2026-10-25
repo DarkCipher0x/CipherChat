@@ -1,0 +1,11 @@
+# CipherChat by DarkCipher Systems: a backup every day (catches up after the machine was off).
+[Unit]
+Description=Daily CipherChat backup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=30m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The MSI properties CipherChat's setup passes through (setup-app.json "property"). Empty = the MSI decides. -->
+<Include xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <MsiProperty Name="INSTALLDESKTOPSHORTCUT" Value="[INSTALLDESKTOPSHORTCUT]" />
+  <MsiProperty Name="INSTALLWEBVIEW2" Value="[INSTALLWEBVIEW2]" />
+  <MsiProperty Name="REMOVE_DATA" Value="[REMOVE_DATA]" />
+</Include>

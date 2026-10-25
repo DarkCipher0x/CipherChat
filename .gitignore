@@ -1,0 +1,32 @@
+# Toolchain (portable, under %LOCALAPPDATA%\DcxToolchain and %LOCALAPPDATA%\Android)
+tools/*.local.ps1
+dist/
+# Android
+android/.gradle/
+android/.kotlin/
+android/**/build/
+android/local.properties
+*.keystore
+*.jks
+android/keystore/
+# OS
+Thumbs.db
+.DS_Store
+# Windows
+windows/**/bin/
+windows/**/obj/
+windows/.nuget/
+windows/**/TestResults/
+*.pfx
+# release tooling: the pinned gitleaks binary and private privacy terms never leave this PC
+tools/bin/
+*.local.txt
+# build output and caches
+windows/build/
+android/build/
+__pycache__/
+*.pyc
+# maintainer working notes: never in any repository, even the private one
+**/RESUME*.md
+**/OUTSTANDING*.md
+**/PLAN-*.md

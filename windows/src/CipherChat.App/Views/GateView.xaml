@@ -1,0 +1,60 @@
+<UserControl x:Class="CipherChat.App.Views.GateView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Background="{DynamicResource ConsoleBg}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel MaxWidth="760" Margin="24,24,24,24">
+                <TextBlock x:Name="Boot" FontFamily="{DynamicResource MonoFont}" FontSize="{DynamicResource FsConsole}" Foreground="{DynamicResource ConsoleFg}" TextWrapping="Wrap"/>
+
+                <!-- set up a new identity -->
+                <Border x:Name="SetupCard" Style="{StaticResource Card}" Margin="0,16,0,0" Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock x:Name="SetupTitle" Text="Set up your chat identity" Style="{StaticResource CardTitle}"/>
+                        <TextBlock Style="{StaticResource BodySecondary}" TextWrapping="Wrap" Margin="0,6,0,10"
+                                   Text="This PC now makes your personal keys (ML-KEM-1024, X25519, ML-DSA-87, Ed25519). They never leave it unencrypted: the server only gets a copy sealed with this passphrase (Argon2id, 64 MiB). The passphrase is separate from your sign-in password and nobody can reset it."/>
+                        <TextBlock Text="CHAT PASSPHRASE" Style="{StaticResource Label}"/>
+                        <PasswordBox x:Name="NewPass" AutomationProperties.Name="Chat passphrase" Margin="0,0,0,8"/>
+                        <TextBlock Text="TYPE IT AGAIN" Style="{StaticResource Label}"/>
+                        <PasswordBox x:Name="NewPass2" AutomationProperties.Name="Chat passphrase again"/>
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,6,0,0" Text="At least 16 characters. Long and unique beats complicated: four or more random words."/>
+                        <Button x:Name="SetupGo" Content="Create my identity" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left" Margin="0,12,0,0" Click="OnSetup"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- unlock -->
+                <Border x:Name="UnlockCard" Style="{StaticResource Card}" Margin="0,16,0,0" Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock x:Name="UnlockTitle" Style="{StaticResource CardTitle}"/>
+                        <TextBlock Style="{StaticResource BodySecondary}" TextWrapping="Wrap" Margin="0,6,0,10"
+                                   Text="Your keys are sealed. Enter your chat passphrase to open them on this PC. They're wiped from memory when you lock, close CipherChat, or after a while without activity."/>
+                        <TextBlock Text="CHAT PASSPHRASE" Style="{StaticResource Label}"/>
+                        <PasswordBox x:Name="Pass" AutomationProperties.Name="Chat passphrase"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <Button x:Name="UnlockGo" Content="Unlock" Style="{StaticResource PrimaryButton}" IsDefault="True" Click="OnUnlock"/>
+                            <Button Content="Sign out" Margin="8,0,0,0" Click="OnSignOut"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- verify the owner -->
+                <Border x:Name="VerifyCard" Style="{StaticResource Card}" Margin="0,16,0,0" Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock Text="Verify the owner" Style="{StaticResource CardTitle}"/>
+                        <TextBlock x:Name="VerifyText" Style="{StaticResource BodySecondary}" TextWrapping="Wrap" Margin="0,6,0,10"/>
+                        <TextBlock x:Name="Safety" FontFamily="{DynamicResource MonoFont}" FontSize="{DynamicResource FsCode}" Foreground="{DynamicResource FgStrong}" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                        <TextBlock x:Name="Fps" Style="{StaticResource Caption}" FontFamily="{DynamicResource MonoFont}" TextWrapping="Wrap" Margin="0,0,0,10"/>
+                        <CheckBox x:Name="SameDigits" Content="The owner sees exactly the same 60 digits."/>
+                        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                            <Button x:Name="PinGo" Content="Pin the owner's identity" Style="{StaticResource PrimaryButton}" Click="OnPin"/>
+                            <Button Content="Later" Margin="8,0,0,0" Click="OnLater"/>
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,10,0,0"
+                                   Text="If the numbers differ, stop: someone may be intercepting. The owner certifies your identity after the same comparison; until then others can't send you room keys."/>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock x:Name="Progress" Style="{StaticResource Caption}" Margin="0,10,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CipherChat's settings for the DarkCipher Setup template (installer\Setup\Bundle.wxs). BundleUpgradeCode is the
+     setup's permanent identity (separate from the MSI's UpgradeCode): never change it. AppRoot = the windows folder. -->
+<Include xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <?define AppName = "CipherChat" ?>
+  <?define Manufacturer = "DarkCipher Systems" ?>
+  <?define BundleUpgradeCode = "2c03eb33-5a30-43a8-9f8f-8be5f3d6d8e0" ?>
+  <?define AboutUrl = "https://darkciphersystems.com" ?>
+  <?define AppIcon = "$(var.AppRoot)\src\CipherChat.App\Assets\cipherchat.ico" ?>
+  <?define AppLogo = "$(var.AppRoot)\src\CipherChat.App\Assets\cipherchat-256.png" ?>
+  <?define LicenseFile = "$(var.AppRoot)\..\LICENSE" ?>
+  <?define SetupConfig = "$(var.AppRoot)\installer\client\setup-app.json" ?>
+  <?define AppMsiProperties = "$(var.AppRoot)\installer\client\setup-app.properties.wxi" ?>
+  <?define InstallFolderProperty = "INSTALLFOLDER" ?>
+  <?define DefaultInstallFolder = "[ProgramFiles64Folder]DarkCipher Systems\CipherChat" ?>
+  <?define LaunchTarget = "[InstallFolder]\CipherChat.exe" ?>
+</Include>

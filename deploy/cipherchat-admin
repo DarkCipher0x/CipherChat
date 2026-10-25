@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# CipherChat by DarkCipher Systems: the server's command line (root only; installed by the setup).
+#   sudo cipherchat-admin status                is it running and healthy, post-quantum TLS, last backup
+#   sudo cipherchat-admin owner-invite          the owner's one-time set-up link (first run, or a lost password/authenticator)
+#   sudo cipherchat-admin backup                a backup now (the daily one runs on its own)
+#   sudo cipherchat-admin uninstall [--purge]   remove CipherChat (data kept unless --purge)
+set -euo pipefail
+[[ $EUID -eq 0 ]] || { echo "run as root (sudo)"; exit 1; }
+cmd="${1:-}"
+case "$cmd" in
+    status|uninstall) exec /usr/bin/python3 -I /opt/cipherchat/setup/cipherchat_setup.py "$@" ;;
+    backup) exec systemctl start --wait cipherchat-backup.service ;;
+    owner-invite) ;;
+    *) sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac
+# Read the env file the way systemd does (KEY=value lines, values may contain spaces), never by executing it
+args=()
+while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^[[:space:]]*(CIPHERCHAT_[A-Z_]+)=(.*)$ ]] || continue
+    v="${BASH_REMATCH[2]}"; v="${v%\"}"; v="${v#\"}"
+    args+=("${BASH_REMATCH[1]}=$v")
+done < /etc/cipherchat/cipherchat.env
+exec runuser -u cipherchat -- env -i PATH=/usr/bin:/bin "${args[@]}" /usr/bin/python3 -I /opt/cipherchat/server/cipherchat/server.py "$cmd"

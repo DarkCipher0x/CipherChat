@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>CipherChat crypto check</title>
+  <link rel="icon" href="/assets/img/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="chat.css?v=20261024c">
+</head>
+<body class="dcx-term-page">
+<main class="st-main">
+  <h1 class="st-h">cipherchat <span class="st-dim">// crypto self-test</span></h1>
+  <p class="st-dim">Runs every cryptographic step of the chat in this browser with throwaway keys, including the tampering cases that must be refused. Nothing leaves this page.</p>
+  <p id="st-summary" role="status">Running…</p>
+  <div id="st-out" class="st-out"></div>
+  <h2 class="st-h2">Interop material</h2>
+  <p class="st-dim">A fresh ML-KEM-1024 ciphertext and ML-DSA-87 signature from the fixed test keys, for checking with OpenSSL (docs/CHAT.md).</p>
+  <pre id="st-interop" class="st-out"></pre>
+</main>
+<script type="module" src="selftest.js?v=20261024c"></script>
+</body>
+</html>

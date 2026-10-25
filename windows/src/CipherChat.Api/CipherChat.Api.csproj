@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The server's API (the same /chat/api/* paths the web portal uses), over CipherChat.Transport only.
+       Sessions, CSRF headers, "confirm it's you" retries, attachments and long polling. No chat logic, no UI. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>CipherChat.Api</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CipherChat.Transport\CipherChat.Transport.csproj" />
+  </ItemGroup>
+</Project>

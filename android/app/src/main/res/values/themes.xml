@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Launch theme; the real UI theme is the Compose DarkCipherTheme. Dark, so there is no white flash before it draws. -->
+    <style name="Theme.CipherChat" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/dcx_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

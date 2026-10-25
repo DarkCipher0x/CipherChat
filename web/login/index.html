@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Sign in - CipherChat</title>
+  <link rel="icon" href="/chat/public/cipherchat.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/chat/public/base.css?v=20261024a">
+  <link rel="stylesheet" href="/chat/public/portal.css?v=20261024d">
+</head>
+<body class="chat-portal">
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/chat/"><img src="/chat/public/cipherchat.svg" alt=""><span>CipherChat<small>by DarkCipher Systems</small></span></a>
+    <nav class="chat-nav" aria-label="Chat"><a href="/chat/public/privacy.html">Privacy &amp; security</a><a href="/chat/public/request.html">Request access</a></nav>
+  </div>
+</header>
+<main class="cp-main">
+  <div id="signin">
+    <h1>Sign in to the secure chat</h1>
+    <p class="dim">End-to-end encrypted with post-quantum cryptography. This sign-in opens the chat only: it never gives access to anything else.</p>
+    <form class="cp-card cp-form" id="login" method="post" action="#" novalidate>
+      <!-- Field names and autocomplete hints are what password managers (Bitwarden, 1Password, the browser's own) read
+           to fill the username, password and authenticator code; "webauthn" offers a saved passkey right in the box. -->
+      <label>Username <input type="text" id="username" name="username" autocomplete="username webauthn" autocapitalize="none" spellcheck="false" maxlength="32" required></label>
+      <label>Password <input type="password" id="password" name="password" autocomplete="current-password" maxlength="1024" required></label>
+      <label>Authenticator code <input type="text" id="code" name="totp" class="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" required></label>
+      <p class="cp-err" id="err" role="alert" hidden></p>
+      <div class="cp-row"><button class="btn btn-primary" type="submit" id="go">Sign in</button>
+        <button class="btn" type="button" id="passkey-go" hidden>Sign in with a passkey</button></div>
+      <p class="cp-small">A passkey (saved in Bitwarden, Windows Hello, your phone or a security key) signs you in with one tap. Add one in your account after signing in. Then you'll unlock your chat keys with your separate chat passphrase. Invited? Use the link in your invitation email to set your password and authenticator first.</p>
+    </form>
+  </div>
+
+  <!-- Invite / reset links: /chat/login/#enrol=TOKEN (the token stays in the fragment: never sent in a URL) -->
+  <div id="enrol-view" hidden>
+    <h1 id="en-title">Set up your account</h1>
+    <p class="dim" id="en-sub">Checking your link…</p>
+    <form class="cp-card cp-form" id="enrol" novalidate>
+      <div class="cp-form" id="en-step1" hidden>
+        <!-- so a password manager saves the new password under the right account -->
+        <input type="text" id="en-user" name="username" autocomplete="username" class="cp-hp" tabindex="-1" aria-hidden="true" readonly>
+        <label id="en-pw-l"><span>Choose a password</span><input id="en-pw" type="password" autocomplete="new-password" maxlength="1024" aria-describedby="en-hint"></label>
+        <label id="en-pw2-l">Password again<input id="en-pw2" type="password" autocomplete="new-password" maxlength="1024"></label>
+        <label id="en-code1-l" hidden>Authenticator code<input id="en-code1" class="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456"></label>
+        <p class="cp-small" id="en-hint"></p>
+      </div>
+      <div class="cp-form" id="en-step2" hidden>
+        <ol class="cp-steps">
+          <li>Open your authenticator (Bitwarden, Google Authenticator, Authy, 1Password…) and add an account.
+            <b>Bitwarden:</b> in this site's login item, use the authenticator key (TOTP) field to scan the QR code or paste the key (Bitwarden Premium), or add it to the free Bitwarden Authenticator app. Bitwarden then fills the code for you at sign-in.</li>
+          <li>Scan this QR code, or choose <b>Enter a setup key</b> (time-based) and paste the key:
+            <canvas class="cp-qr" id="en-qr" width="232" height="232" role="img" aria-label="QR code with your authenticator key"></canvas>
+            <div class="cp-key"><code id="en-secret"></code><button type="button" class="btn btn-sm" id="en-copy">Copy</button></div>
+            On a phone you can instead <a id="en-uri" href="#">open it in your authenticator app</a>.</li>
+          <li>Enter the 6-digit code the app now shows.</li>
+        </ol>
+        <label>Code from the app<input id="en-code" class="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456"></label>
+      </div>
+      <div id="en-done" hidden>
+        <p class="cp-ok" role="status">All set. Sign in with your username, password and authenticator code, then choose your chat passphrase.</p>
+        <p><a class="btn btn-primary" href="/chat/login/">Go to sign in</a></p>
+      </div>
+      <p class="cp-err" id="en-err" role="alert" hidden></p>
+      <div><button class="btn btn-primary" type="submit" id="en-go" hidden>Continue</button></div>
+    </form>
+  </div>
+
+  <div class="cp-links">
+    <a href="/chat/public/request.html">No account? Request access</a>
+    <a href="/chat/public/privacy.html">Privacy &amp; security statement</a>
+    <a href="https://darkciphersystems.com/" rel="noopener">About CipherChat</a>
+  </div>
+</main>
+<script src="/chat/public/passkey.js?v=20261024a"></script>
+<script src="/chat/login/login.js?v=20261024c"></script>
+</body>
+</html>

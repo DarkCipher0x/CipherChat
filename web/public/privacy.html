@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy &amp; security - CipherChat</title>
+  <meta name="description" content="How CipherChat protects your messages, what the server can and can't see, and the terms you use it on.">
+  <link rel="icon" href="/chat/public/cipherchat.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/chat/public/base.css?v=20261024a">
+  <link rel="stylesheet" href="/chat/public/portal.css?v=20261024d">
+</head>
+<body class="chat-portal">
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/chat/"><img src="/chat/public/cipherchat.svg" alt=""><span data-name>CipherChat<small>by DarkCipher Systems</small></span></a>
+    <nav class="chat-nav" aria-label="Chat"><a href="/chat/">Open the chat</a><a href="/chat/public/request.html">Request access</a></nav>
+  </div>
+</header>
+<main class="cp-main">
+  <h1>Privacy &amp; security</h1>
+  <p class="dim">This statement covers this CipherChat server: <strong data-name-text>CipherChat</strong>. "The operator" means the people who run it. CipherChat is open-source software by DarkCipher Systems; DarkCipher Systems doesn't run this server unless it says so above, and never sees its data.</p>
+
+  <div class="cp-card">
+    <h2>In short</h2>
+    <ul>
+      <li>Messages, pictures, videos, files, reactions and edits are <strong>end-to-end encrypted</strong> on your own device. The server stores only ciphertext it cannot read.</li>
+      <li>The encryption is <strong>post-quantum</strong>: every step pairs a NIST post-quantum algorithm with a proven classical one, so it stays safe if either is ever broken.</li>
+      <li>The service is provided <strong>as it is, and used entirely at your own risk</strong>. Read "Your risk, your responsibility" below before you use it.</li>
+    </ul>
+  </div>
+
+  <h2>Your risk, your responsibility</h2>
+  <ul>
+    <li>This server is offered without any warranty or guarantee of security, availability, accuracy or fitness for any purpose. No security is perfect.</li>
+    <li>You use it, and anything you send, store or receive through it, <strong>at your own risk</strong>. To the fullest extent the law allows, neither the operator nor the authors of CipherChat are liable for any loss, damage, disclosure, interception, deletion or unavailability of data, or any consequence of using or being unable to use the service.</li>
+    <li>Don't rely on it for emergencies, or for anything where a failure, a delay or a leak would cause serious harm (for example legal, medical or financial obligations). Keep your own copies of anything important.</li>
+    <li>You are responsible for what you send, for keeping your password, authenticator, chat passphrase and devices safe, and for following the law. Don't share anything illegal, or anything you don't have the right to share.</li>
+    <li>Access is by invitation and can be changed or withdrawn at any time, for example to protect the service or other people.</li>
+  </ul>
+
+  <h2>How your messages are protected</h2>
+  <ul>
+    <li><strong>Keys made on your device.</strong> Your personal keys are created on your own device and never leave it unencrypted.</li>
+    <li><strong>Post-quantum hybrid encryption.</strong> Room keys are handed to each member with ML-KEM-1024 together with X25519. Every message is signed with ML-DSA-87 together with Ed25519, and only accepted if both signatures check. Content is encrypted with AES-256-GCM, with a fresh key for every message and every file.</li>
+    <li><strong>Your chat passphrase stays with you.</strong> A copy of your keys is kept on the server so you can use more than one device, but only sealed with your passphrase (Argon2id) and a per-person key share derived from a server key held outside the database. The passphrase is never sent to the server, and nobody can reset it for you.</li>
+    <li><strong>Verified people.</strong> Each member's identity is checked by comparing a 60-digit safety number with the server's owner, out of band. Every client refuses keys and messages from anyone unverified, and any server attempt to swap keys, change, forge or replay messages is detected and refused.</li>
+    <li><strong>New keys when people leave.</strong> Rooms get a new key whenever members change, and every week, so people who leave can't read what's sent afterwards.</li>
+    <li><strong>Attachments.</strong> Files, pictures and videos are encrypted on your device before upload, padded so even their exact size is hidden, and deleted with their message.</li>
+    <li><strong>Burn messages.</strong> A burn message stays hidden until opened, disappears from the screen after its countdown, and is destroyed on the server as soon as everyone it was sent to has opened it, or after 7 days unopened.</li>
+    <li><strong>The connection.</strong> The recommended setup uses TLS 1.3 with post-quantum hybrid key exchange (X25519MLKEM768), which current Chrome, Edge and Firefox use. The CipherChat apps for Android and Windows refuse to connect without it.</li>
+    <li><strong>Sign-in.</strong> A password and an authenticator code, rate limits and lockout after repeated failures. Paired apps get a revocable device credential, kept in the device's secure key storage.</li>
+    <li><strong>Self-checking.</strong> Every client checks its cryptography against an independent implementation (OpenSSL known answers) every time it starts, and refuses to run if anything is off.</li>
+  </ul>
+
+  <h2>What the server can see</h2>
+  <p>End-to-end encryption hides what you say, not that you're talking. The server necessarily knows:</p>
+  <ul>
+    <li>your account name, display name and, if you were invited by email, your email address;</li>
+    <li>room names and topics, who is in which room, and who has which public key;</li>
+    <li>when messages are sent and by whom, roughly how large they are (in fixed size steps), and which messages carry attachments;</li>
+    <li>for security, sign-ins and account changes are recorded in an audit log. Network addresses are never stored or logged: the log keeps only a tag that changes every day and can't be turned back into an address, so repeated attempts can be spotted without recording who you are.</li>
+  </ul>
+  <p>The server cannot see the content of messages, attachments, reactions or edits, your private keys, or your chat passphrase.</p>
+
+  <h2>What encryption can't protect against</h2>
+  <ul>
+    <li>A device that is itself compromised, or someone with access to your unlocked device.</li>
+    <li>The people you chat with: they can copy, forward or photograph anything you send them, burn messages included.</li>
+    <li>In a browser, the chat's code is loaded from the server each time; if the server itself were taken over, the code could be altered. The signed, installed CipherChat apps don't share this weakness.</li>
+    <li>Losing your chat passphrase: there is no recovery. You can start a new identity, but older messages can't be read with it.</li>
+    <li>Server backups made before a message was deleted may still contain its ciphertext, which stays unreadable without the room key.</li>
+  </ul>
+
+  <h2>Keeping and deleting data</h2>
+  <ul>
+    <li>Messages are kept until they are deleted, or for the retention period a room is set to (1 to 365 days). Deleting a message deletes it for everyone, attachments included.</li>
+    <li>You can leave rooms and ask the operator to delete your account at any time.</li>
+    <li>Access requests (your name, email address and message) are used only to decide on and answer the request, are stored without your network address, and are deleted 90 days after a decision (180 days if never answered).</li>
+  </ul>
+
+  <h2>Your rights and contact</h2>
+  <p>Questions about your data, or requests to see or delete it, go to the operator of this server. If the operator publishes its own privacy policy, it applies alongside this statement.</p>
+
+  <div class="cp-links"><a href="/chat/public/request.html">Request access</a><a href="/chat/">Open the chat</a></div>
+</main>
+<script src="/chat/public/instance.js?v=20261024a"></script>
+</body>
+</html>

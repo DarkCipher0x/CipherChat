@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Your account - CipherChat</title>
+  <link rel="icon" href="/chat/public/cipherchat.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/chat/public/base.css?v=20261024a">
+  <link rel="stylesheet" href="/chat/public/portal.css?v=20261024d">
+  <link rel="stylesheet" href="/chat/admin/admin.css?v=20261024a">
+</head>
+<body class="chat-portal">
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/chat/"><img src="/chat/public/cipherchat.svg" alt=""><span>CipherChat<small>by DarkCipher Systems</small></span></a>
+    <nav class="chat-nav" aria-label="Account">
+      <a href="/chat/">Open the chat</a>
+      <span class="who" id="who"></span>
+      <button class="btn btn-sm" type="button" id="signout">Sign out</button>
+    </nav>
+  </div>
+</header>
+<main class="adm-main">
+  <h1>Your account</h1>
+  <p class="cp-err" id="err" role="alert" hidden></p>
+  <p class="cp-ok" id="ok" role="status" hidden></p>
+
+  <section class="adm-card">
+    <h2>Passkeys</h2>
+    <p class="dim">Sign in with one tap instead of your password and code, and confirm sensitive steps the same way. Save the passkey in <b>Bitwarden</b> (its browser extension or app offers to when you add one), Windows Hello, your phone or a security key. The private key never leaves it; the server only checks signatures.</p>
+    <div id="pk-list"></div>
+    <div class="adm-actions"><button class="btn btn-primary btn-sm" type="button" id="pk-add">Add a passkey</button></div>
+    <p class="cp-small" id="pk-unsupported" hidden>This browser can't use passkeys.</p>
+  </section>
+
+  <section class="adm-card">
+    <h2>Password</h2>
+    <form class="cp-form" id="pw-form" method="post" action="#" novalidate>
+      <input type="text" name="username" id="pw-user" autocomplete="username" class="cp-hp" tabindex="-1" aria-hidden="true" readonly>
+      <label>Current password <input type="password" id="pw-cur" name="current-password" autocomplete="current-password" maxlength="1024"></label>
+      <label>New password <input type="password" id="pw-new" name="new-password" autocomplete="new-password" maxlength="1024"></label>
+      <label>New password again <input type="password" id="pw-new2" autocomplete="new-password" maxlength="1024"></label>
+      <label>Authenticator code <input type="text" id="pw-code" name="totp" class="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456"></label>
+      <div><button class="btn btn-sm" type="submit">Change password</button></div>
+      <p class="cp-small">Changing it signs out your other sessions. Your chat passphrase is separate: change that inside the chat (/passphrase).</p>
+    </form>
+  </section>
+</main>
+<script src="/chat/public/passkey.js?v=20261024a"></script>
+<script src="/chat/account/account.js?v=20261024a"></script>
+</body>
+</html>

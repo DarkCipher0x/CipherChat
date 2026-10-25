@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The CipherChat mark (web/public/cipherchat.svg, windows/tools/make-icon.ps1): a speech bubble holding a terminal
+     prompt, in the DarkCipher teal. Drawn in the icon's 64-unit design space, centred in the 108 dp adaptive canvas. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <group android:translateX="13" android:translateY="13" android:scaleX="1.28" android:scaleY="1.28">
+        <path android:pathData="M15,17 H49 A4,4 0 0 1 53,21 V38 A4,4 0 0 1 49,42 H29 L20,49 V42 H15 A4,4 0 0 1 11,38 V21 A4,4 0 0 1 15,17 Z"
+            android:strokeWidth="3.5" android:strokeLineJoin="round" android:fillColor="#00000000">
+            <aapt:attr name="android:strokeColor">
+                <gradient android:type="linear" android:startX="11" android:startY="17" android:endX="53" android:endY="49">
+                    <item android:offset="0" android:color="#5FF2EA" />
+                    <item android:offset="1" android:color="#1FA9A3" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path android:pathData="M20,25 L26,30 L20,35" android:strokeColor="#4FE6DF" android:strokeWidth="3.5"
+            android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000" />
+        <path android:pathData="M31.75,33 H42.25 A1.75,1.75 0 0 1 42.25,36.5 H31.75 A1.75,1.75 0 0 1 31.75,33 Z" android:fillColor="#3DD6D0" />
+    </group>
+</vector>

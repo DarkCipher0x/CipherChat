@@ -1,0 +1,59 @@
+# CipherChat by DarkCipher Systems: the mailer (installed by deploy/install.sh). Sends the queued emails (invites,
+# notifications) through the SMTP server set on the admin page. It is the only CipherChat process that may reach the
+# internet, it has no listening sockets, and it never parses anything from the web: the chat server itself stays
+# loopback-only.
+[Unit]
+Description=CipherChat mailer (sends queued email over verified TLS)
+After=network-online.target cipherchat.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cipherchat
+Group=cipherchat
+EnvironmentFile=/etc/cipherchat/cipherchat.env
+ExecStart=/usr/bin/python3 -I /opt/cipherchat/server/cipherchat/server.py mailer
+Restart=on-failure
+RestartSec=10
+UMask=0077
+StateDirectory=cipherchat
+StateDirectoryMode=0700
+
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateUsers=true
+KeyringMode=private
+PrivateTmp=true
+PrivateDevices=true
+PrivateIPC=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/cipherchat /etc/cipherchat
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# outgoing connections only: it may not bind a port, so it can never listen for anything
+SocketBindDeny=any
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RemoveIPC=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+MemoryMax=128M
+TasksMax=32
+LimitNOFILE=256
+
+[Install]
+WantedBy=multi-user.target

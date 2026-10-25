@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- The page may load only its own files and talk only to the app (its WebView message channel); it can't fetch anything.
+       WebRTC media is outside fetch's reach and is encrypted frame by frame (callworker.js). -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src blob: mediastream:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>CipherChat call</title>
+  <link rel="stylesheet" href="app/chat.css">
+  <link rel="stylesheet" href="host.css">
+  <script type="module" src="host.js"></script>
+</head>
+<body class="call-host">
+  <p class="call-wait" id="wait">Starting the call…</p>
+</body>
+</html>

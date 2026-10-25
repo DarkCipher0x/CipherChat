@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- No cleartext through Android's networking. CipherChat's own connections are its post-quantum TLS client (never
+     plain HTTP in release builds), and the call page loads only from inside the APK. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

@@ -1,0 +1,21 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- CipherChat's brand on top of the shared DarkCipher Systems theme (Theme.xaml), for every CipherChat app on
+         Windows: the fonts with an emoji fallback, and the brand mark. Merge after Theme.xaml. -->
+    <!-- The shared fonts plus Segoe UI Emoji as the fallback, so emoji in messages render instead of empty boxes -->
+    <FontFamily x:Key="UiFont">Segoe UI Variable Text, Segoe UI, Segoe UI Emoji, Segoe UI Symbol</FontFamily>
+    <FontFamily x:Key="MonoFont">Cascadia Mono, Cascadia Code, Consolas, Segoe UI Emoji, Segoe UI Symbol, Courier New</FontFamily>
+
+    <!-- Brand mark: the CipherChat icon (a speech bubble with a prompt) in the fixed brand colours. Design space 64 x 64. -->
+    <ControlTemplate x:Key="BrandMark" TargetType="ContentControl">
+        <Viewbox>
+            <Canvas Width="64" Height="64">
+                <Rectangle Canvas.Left="3" Canvas.Top="3" Width="58" Height="58" RadiusX="14" RadiusY="14" Fill="{StaticResource MarkPanel}" Stroke="{StaticResource MarkTeal}" StrokeThickness="3"/>
+                <Path Data="M15,17 H49 A4,4 0 0 1 53,21 V38 A4,4 0 0 1 49,42 H29 L20,49 V42 H15 A4,4 0 0 1 11,38 V21 A4,4 0 0 1 15,17 Z" Stroke="{StaticResource MarkTeal}" StrokeThickness="3.5" StrokeLineJoin="Round"/>
+                <Path Data="M20,25 L26,30 L20,35" Stroke="{StaticResource MarkTeal}" StrokeThickness="3.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                <Rectangle Canvas.Left="30" Canvas.Top="33" Width="14" Height="3.5" RadiusX="1.75" RadiusY="1.75" Fill="{StaticResource MarkTeal}"/>
+            </Canvas>
+        </Viewbox>
+    </ControlTemplate>
+
+</ResourceDictionary>

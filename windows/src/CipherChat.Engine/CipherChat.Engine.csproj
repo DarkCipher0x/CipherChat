@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The chat itself, without any UI: trust decisions, rooms, room keys, messages, reactions, edits, burn messages,
+       attachments, polling and the set-up / unlock gate. A line-by-line port of the web chat's app.js, gate.js,
+       trust.js and messages.js, so every client behaves the same. The app only renders what this raises. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>CipherChat.Engine</RootNamespace>
+    <!-- CA1001: the SemaphoreSlim and CancellationTokenSource here never allocate a wait handle or timer, so there is
+         nothing to dispose; Lock() cancels polling and wipes the keys, which is the clean-up that matters -->
+    <NoWarn>$(NoWarn);CA1001</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CipherChat.Crypto\CipherChat.Crypto.csproj" />
+    <ProjectReference Include="..\CipherChat.Api\CipherChat.Api.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="CipherChat.Engine.Tests" />
+    <InternalsVisibleTo Include="CipherChat.Addons.Tests" />
+  </ItemGroup>
+</Project>

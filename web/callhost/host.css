@@ -1,0 +1,3 @@
+/* The apps' call screen (Windows and Android): it fills the window (chat.css draws the screen itself). */
+html, body { margin: 0; height: 100%; background: var(--t-bg); color: var(--t-fg); font: 13px var(--t-mono); }
+.call-wait { padding: 24px; color: var(--t-muted); }

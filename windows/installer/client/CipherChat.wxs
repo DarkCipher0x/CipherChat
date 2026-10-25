@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CipherChat for Windows: the MSI (WiX Toolset 5). Built by windows\tools\build-installers.ps1; the double-click
+     download is CipherChat-<ver>-Setup.exe (the DarkCipher Setup template around this MSI). Deployable on its own:
+     msiexec /i CipherChat-<ver>-x64.msi /qn [INSTALLDESKTOPSHORTCUT=0] [INSTALLWEBVIEW2=0]
+     msiexec /x CipherChat-<ver>-x64.msi /qn [REMOVE_DATA=1] -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <!-- UpgradeCode is the permanent identity of the product: never change it. -->
+  <Package Name="CipherChat" Manufacturer="DarkCipher Systems" Version="$(var.Version)"
+           UpgradeCode="7786bf00-4462-4537-bd53-553641391616" Scope="perMachine" Compressed="yes" Language="1033">
+    <SummaryInformation Description="CipherChat $(var.Version) Installer" Manufacturer="DarkCipher Systems" />
+    <!-- AllowSameVersionUpgrades: a rebuilt build of the same version replaces the installed one (removed first, so every file is new) -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of CipherChat is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- The app's minimum: Windows 10 2004 (build 19041) or later, 64-bit -->
+    <Launch Condition="Installed OR VersionNT64" Message="CipherChat needs 64-bit Windows 10 (2004) or Windows 11." />
+    <Property Id="WINBUILD">
+      <RegistrySearch Id="FindWinBuild" Root="HKLM" Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion" Name="CurrentBuildNumber" Type="raw" />
+    </Property>
+    <Launch Condition="Installed OR WINBUILD &gt;= 19041" Message="CipherChat needs Windows 10 version 2004 or later." />
+
+    <Icon Id="AppIcon" SourceFile="$(var.Root)\src\CipherChat.App\Assets\cipherchat.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPCONTACT" Value="DarkCipher Systems" />
+    <Property Id="ARPURLINFOABOUT" Value="https://darkciphersystems.com" />
+    <Property Id="ARPCOMMENTS" Value="Post-quantum end-to-end encrypted chat and calls, by DarkCipher Systems" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="CompanyFolder" Name="DarkCipher Systems">
+        <Directory Id="INSTALLFOLDER" Name="CipherChat" />
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Microsoft Edge WebView2 Runtime: calls run in it. Built into Windows 11; may be missing on Windows 10. -->
+    <Property Id="WEBVIEW2_MACHINE">
+      <RegistrySearch Id="FindWebView2Machine" Root="HKLM" Key="SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" Name="pv" Type="raw" Bitness="always64" />
+    </Property>
+    <Property Id="WEBVIEW2_USER">
+      <RegistrySearch Id="FindWebView2User" Root="HKCU" Key="Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" Name="pv" Type="raw" />
+    </Property>
+    <SetProperty Id="INSTALLWEBVIEW2" Value="1" After="AppSearch" Sequence="first"
+                 Condition="NOT Installed AND NOT INSTALLWEBVIEW2 AND (NOT WEBVIEW2_MACHINE OR WEBVIEW2_MACHINE = &quot;0.0.0.0&quot;) AND (NOT WEBVIEW2_USER OR WEBVIEW2_USER = &quot;0.0.0.0&quot;)" />
+
+    <Property Id="INSTALLDESKTOPSHORTCUT" Value="1" Secure="yes" />
+    <Property Id="INSTALLWEBVIEW2" Secure="yes" />
+    <!-- Uninstall: also remove this user's pairings and call cache (%LOCALAPPDATA%\CipherChat). Off by default. -->
+    <Property Id="REMOVE_DATA" Secure="yes" />
+
+    <Feature Id="Main" Title="CipherChat" Level="1">
+      <Files Directory="INSTALLFOLDER" Include="$(var.PublishDir)\**" />
+      <File Id="LicenseFile" Directory="INSTALLFOLDER" Source="$(var.Repo)\LICENSE" Name="LICENSE.txt" />
+      <File Id="NoticesFile" Directory="INSTALLFOLDER" Source="$(var.Repo)\THIRD-PARTY-NOTICES.md" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="DesktopShortcut" />
+    </Feature>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="DcxMenuFolder" Name="DarkCipher Systems">
+        <Component Id="StartMenuShortcut" Guid="cfbc2cdb-e094-40e3-86b9-bad3c7d00098">
+          <Shortcut Id="AppShortcut" Name="CipherChat" Description="Post-quantum end-to-end encrypted chat and calls - by DarkCipher Systems"
+                    Target="[INSTALLFOLDER]CipherChat.exe" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" />
+          <RemoveFolder Id="RemoveStartMenuFolder" On="uninstall" />
+          <RegistryValue Root="HKLM" Key="Software\DarkCipher Systems\CipherChat\Install" Name="InstallDir" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopShortcut" Guid="a90d808a-cb2e-45e2-bb83-1c05d3102054" Condition="INSTALLDESKTOPSHORTCUT=&quot;1&quot;">
+        <Shortcut Id="DesktopAppShortcut" Name="CipherChat" Target="[INSTALLFOLDER]CipherChat.exe" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" />
+        <RegistryValue Root="HKLM" Key="Software\DarkCipher Systems\CipherChat\Install" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <!-- WebView2 through winget, as the installing user (Microsoft's own package; skipped when present). -->
+    <CustomAction Id="InstallWebView2" Directory="INSTALLFOLDER" Execute="deferred" Impersonate="yes" Return="ignore"
+                  ExeCommand="&quot;[System64Folder]cmd.exe&quot; /c winget install --id Microsoft.EdgeWebView2Runtime -e --silent --accept-source-agreements --accept-package-agreements" />
+    <!-- REMOVE_DATA: the installing user's CipherChat folder (the sealed pairings vault and the call window's cache). -->
+    <CustomAction Id="RemoveUserData" Directory="INSTALLFOLDER" Execute="deferred" Impersonate="yes" Return="ignore"
+                  ExeCommand="&quot;[System64Folder]cmd.exe&quot; /c if exist &quot;%LOCALAPPDATA%\CipherChat&quot; rmdir /s /q &quot;%LOCALAPPDATA%\CipherChat&quot;" />
+    <InstallExecuteSequence>
+      <Custom Action="InstallWebView2" After="InstallFiles" Condition="INSTALLWEBVIEW2=&quot;1&quot; AND NOT REMOVE" />
+      <Custom Action="RemoveUserData" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE AND REMOVE_DATA=&quot;1&quot;" />
+    </InstallExecuteSequence>
+
+    <!-- The plain MSI's own UI (administrators): folder and licence. Setup.exe is the themed experience. -->
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.Root)\installer\License.rtf" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <ui:WixUI Id="WixUI_InstallDir" />
+  </Package>
+</Wix>

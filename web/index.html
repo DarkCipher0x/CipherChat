@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>CipherChat</title>
+  <link rel="icon" href="/chat/public/cipherchat.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/chat/public/base.css?v=20261024a">
+  <link rel="stylesheet" href="/chat/app/chat.css?v=20261025a">
+  <link rel="stylesheet" href="/chat/public/portal.css?v=20261024d">
+</head>
+<body class="chat-page chat-portal">
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/chat/"><img src="/chat/public/cipherchat.svg" alt=""><span>CipherChat<small>by DarkCipher Systems</small></span></a>
+    <nav class="chat-nav" aria-label="Chat">
+      <a href="/chat/account/">Account</a>
+      <a href="/chat/admin/" id="admin-link" hidden>Admin</a>
+      <a href="/chat/public/privacy.html">Privacy &amp; security</a>
+      <span class="who" id="who"></span>
+      <button class="btn btn-sm" type="button" id="signout">Sign out</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap portal-main chat-main">
+  <h1 class="sr-only">CipherChat</h1>
+  <section class="term" id="term" aria-label="CipherChat terminal">
+    <div class="term-bar">
+      <button class="term-btn side-toggle" type="button" id="side-toggle" aria-controls="side" aria-expanded="false">rooms</button>
+      <span class="term-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+      <span class="term-title"><b>cipher</b>chat <span class="st-dim">// end-to-end encrypted, post-quantum</span></span>
+      <span class="grow"></span>
+      <span class="pq-badge" id="pq-badge">self-test…</span>
+      <button class="term-btn" type="button" id="lock-btn" hidden>lock</button>
+    </div>
+    <div class="term-body">
+      <aside class="term-side" id="side" aria-label="Rooms and people">
+        <div class="side-h"><span>Rooms</span><button type="button" id="new-room" aria-label="New private room" title="New private room" hidden>+</button></div>
+        <ul class="side-list" id="room-list"></ul>
+        <div class="side-h"><span>Direct</span><button type="button" id="new-dm" aria-label="New direct message" title="New direct message">+</button></div>
+        <ul class="side-list" id="dm-list"></ul>
+        <div class="side-h"><span>People</span></div>
+        <div id="people"></div>
+      </aside>
+      <div class="term-main">
+        <div class="term-topic" id="topic"></div>
+        <div class="term-log" id="log" role="log" aria-live="polite" aria-relevant="additions" tabindex="0"></div>
+        <div class="compose-bar" id="compose-bar" hidden></div>
+        <form class="term-prompt" id="prompt" autocomplete="off">
+          <label for="input" id="prompt-label">$</label>
+          <textarea id="input" class="term-input" rows="1" maxlength="8000" spellcheck="true" placeholder="message, or /help" disabled></textarea>
+          <button class="term-btn icon" type="button" id="emoji-btn" aria-label="Insert emoji" title="Emoji" disabled>&#9786;</button>
+          <button class="term-btn icon gif-btn" type="button" id="gif-btn" aria-label="Send a GIF" title="GIFs" disabled>GIF</button>
+          <button class="term-btn icon burn-btn" type="button" id="burn-btn" aria-pressed="false" aria-label="Burn after reading" title="Burn after reading (off)" disabled>&#128293;</button>
+          <button class="term-btn icon" type="button" id="attach-btn" aria-label="Attach files, pictures or videos" title="Attach (encrypted)" disabled>+</button>
+          <input type="file" id="file-input" multiple hidden>
+          <input type="file" id="gif-input" accept="image/gif" multiple hidden>
+          <button class="term-btn primary" type="submit" id="send" disabled>send</button>
+        </form>
+      </div>
+    </div>
+    <div class="term-status" id="status"></div>
+    <div class="term-gate" id="gate"><div class="gate-box"><pre class="boot" id="boot"></pre><div id="gate-card"></div></div></div>
+  </section>
+</main>
+
+<script src="/chat/public/passkey.js?v=20261024a"></script>
+<script src="/chat/public/portal.js?v=20261024a"></script>
+<script type="module" src="/chat/app/app.js?v=20261025a"></script>
+</body>
+</html>

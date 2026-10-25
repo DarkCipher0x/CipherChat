@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Admin - CipherChat</title>
+  <link rel="icon" href="/chat/public/cipherchat.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/chat/public/base.css?v=20261024a">
+  <link rel="stylesheet" href="/chat/public/portal.css?v=20261024d">
+  <link rel="stylesheet" href="/chat/admin/admin.css?v=20261024b">
+</head>
+<body class="chat-portal">
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/chat/"><img src="/chat/public/cipherchat.svg" alt=""><span>CipherChat<small>admin</small></span></a>
+    <nav class="chat-nav" aria-label="Admin">
+      <a href="/chat/">Open the chat</a>
+      <span class="who" id="who"></span>
+      <button class="btn btn-sm" type="button" id="signout">Sign out</button>
+    </nav>
+  </div>
+</header>
+<main class="adm-main">
+  <h1>Admin</h1>
+  <p class="dim">Who may use this server. Every change here is checked by the server, written to the audit log, and needs a fresh authenticator code. Nothing here can read anyone's messages: they're end-to-end encrypted.</p>
+  <div class="adm-tabs" role="tablist" aria-label="Admin sections">
+    <button type="button" role="tab" id="tab-requests" hidden aria-controls="panel-requests" aria-selected="true">Requests <span class="badge" id="req-count"></span></button>
+    <button type="button" role="tab" id="tab-people" hidden aria-controls="panel-people" aria-selected="false">People</button>
+    <button type="button" role="tab" id="tab-roles" aria-controls="panel-roles" aria-selected="false" hidden>Roles</button>
+    <button type="button" role="tab" id="tab-settings" aria-controls="panel-settings" aria-selected="false" hidden>Settings</button>
+    <button type="button" role="tab" id="tab-mail" aria-controls="panel-mail" aria-selected="false" hidden>Email &amp; notifications</button>
+    <button type="button" role="tab" id="tab-audit" aria-controls="panel-audit" aria-selected="false" hidden>Audit log</button>
+  </div>
+  <p class="cp-err" id="err" role="alert" hidden></p>
+
+  <section class="adm-panel" id="panel-requests" role="tabpanel" aria-labelledby="tab-requests" hidden>
+    <div class="adm-filters" role="group" aria-label="Filter requests">
+      <button type="button" class="btn btn-sm active" data-status="new" aria-pressed="true">New</button>
+      <button type="button" class="btn btn-sm" data-status="approved" aria-pressed="false">Approved</button>
+      <button type="button" class="btn btn-sm" data-status="declined" aria-pressed="false">Declined</button>
+      <button type="button" class="btn btn-sm" data-status="all" aria-pressed="false">All</button>
+    </div>
+    <div id="req-list"></div>
+    <p class="dim" id="req-empty" hidden>No requests here. People ask for access at <a href="/chat/public/request.html">/chat/public/request.html</a>.</p>
+  </section>
+
+  <section class="adm-panel" id="panel-people" role="tabpanel" aria-labelledby="tab-people" hidden>
+    <div class="adm-row"><button type="button" class="btn btn-primary btn-sm" id="invite-btn">Invite someone</button></div>
+    <div class="adm-table-wrap"><table class="adm-table">
+      <thead><tr><th scope="col">Account</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Chat identity</th><th scope="col">Last sign-in</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody id="people-list"></tbody>
+    </table></div>
+    <p class="cp-small">Each person has a role (a set of permissions, see Roles) and can be given or denied single permissions on top. Nobody can give anyone a permission they don't hold, or change someone with as many permissions as they have. The owner (<span id="owner-name"></span>) is the chat's trust anchor and can't be changed here.</p>
+  </section>
+
+  <section class="adm-panel" id="panel-roles" role="tabpanel" aria-labelledby="tab-roles" hidden>
+    <div class="adm-row"><button type="button" class="btn btn-primary btn-sm" id="role-new" hidden>New role</button></div>
+    <div id="role-list"></div>
+  </section>
+
+  <section class="adm-panel" id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" hidden>
+    <form id="settings-form" class="adm-form" autocomplete="off"></form>
+  </section>
+
+  <section class="adm-panel" id="panel-mail" role="tabpanel" aria-labelledby="tab-mail" hidden>
+    <div id="mail-box"></div>
+  </section>
+
+  <section class="adm-panel" id="panel-audit" role="tabpanel" aria-labelledby="tab-audit" hidden>
+    <div class="adm-table-wrap"><table class="adm-table">
+      <thead><tr><th scope="col">When (UTC)</th><th scope="col">Who</th><th scope="col">What</th><th scope="col">On</th><th scope="col">Result</th><th scope="col" title="A daily-changing tag, never an address">Source</th></tr></thead>
+      <tbody id="audit-list"></tbody>
+    </table></div>
+  </section>
+</main>
+<script src="/chat/public/passkey.js?v=20261024a"></script>
+<script src="/chat/admin/admin.js?v=20261024c"></script>
+</body>
+</html>

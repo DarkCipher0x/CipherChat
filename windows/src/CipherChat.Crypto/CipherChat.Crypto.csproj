@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The chat protocol's cryptography, a C# port of the web chat's crypto.js and the Android app's core:crypto, byte-for-byte
+       compatible with both (tests/: OpenSSL known answers, browser-made and phone-made fixtures). No UI, no network. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>CipherChat.Crypto</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- ML-KEM-1024, ML-DSA-87, X25519, Ed25519, SHA-3, HKDF, Argon2id (and the PQ TLS groups for the client).
+         2.7.0 was published 2026-07-30; the lock file pins its content hash. -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="[2.7.0]" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="CipherChat.Crypto.Tests" />
+  </ItemGroup>
+</Project>

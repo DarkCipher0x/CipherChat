@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The CipherChat apps' shared Windows look: the DarkCipher Systems theme (Themes/Theme.xaml, the same as the other
+       DarkCipher apps), CipherChat's brand (Themes/Brand.xaml) and the themed dialogs. Used by the chat app and by
+       CipherChat Server Manager. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>CipherChat.Ui</RootNamespace>
+    <NoWarn>$(NoWarn);CA1515</NoWarn>
+  </PropertyGroup>
+</Project>

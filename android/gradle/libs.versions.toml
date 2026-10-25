@@ -1,0 +1,53 @@
+# One place for every dependency version (same toolchain and versions as DarkCipher Command).
+[versions]
+agp = "8.13.0"
+kotlin = "2.2.20"
+coreKtx = "1.17.0"
+lifecycle = "2.9.4"
+activityCompose = "1.11.0"
+composeBom = "2025.09.01"
+biometric = "1.1.0"
+coroutines = "1.10.2"
+serialization = "1.9.0"
+# Pinned by SHA-256 in gradle/verification-metadata.xml (2af190b3..., matches Maven Central's published checksums)
+bouncycastle = "1.86"
+junit = "4.13.2"
+
+[libraries]
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
+androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-compose-material-icons = { group = "androidx.compose.material", name = "material-icons-extended" }
+androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
+# biometric 1.1.0 drags in an old fragment whose FragmentActivity rejects Activity Result request codes; pin a current one.
+androidx-fragment = { group = "androidx.fragment", name = "fragment-ktx", version = "1.8.9" }
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
+bouncycastle-prov = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
+# bctls has a 1.86.2 patch release (TLS fixes); it builds on bcprov/bcutil 1.86. Pinned the same way.
+bouncycastle-tls = { group = "org.bouncycastle", name = "bctls-jdk18on", version = "1.86.2" }
+bouncycastle-util = { group = "org.bouncycastle", name = "bcutil-jdk18on", version.ref = "bouncycastle" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+# The call screen: WebViewAssetLoader (the page is served from the APK under https://appassets.androidplatform.net)
+# and WebMessageListener (an origin-restricted message channel instead of addJavascriptInterface).
+androidx-webkit = { group = "androidx.webkit", name = "webkit", version = "1.14.0" }
+# Pairing QR codes: Google's on-device scanner returns only the text (no camera permission for the app).
+gms-code-scanner = { group = "com.google.android.gms", name = "play-services-code-scanner", version = "16.1.0" }
+# Passkeys (the phone's own, or a password manager such as Bitwarden) through Android's Credential Manager.
+androidx-credentials = { group = "androidx.credentials", name = "credentials", version = "1.5.0" }
+androidx-credentials-play = { group = "androidx.credentials", name = "credentials-play-services-auth", version = "1.5.0" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

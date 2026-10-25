@@ -1,0 +1,18 @@
+# Files that exist in the project but are never published. Same pattern rules as public-allowlist.txt.
+# The local term list for the privacy scan (names that must never appear in public files)
+*.local.txt
+tools/*.local.txt
+tools/*.local.ps1
+# This PC's Android SDK path
+android/local.properties
+# Signing material, should any ever be made inside the project (the Android release key lives outside it)
+**/*.pfx
+**/*.p12
+**/*.jks
+**/*.keystore
+**/*.pem
+**/*.key
+# Maintainer working notes (never published, even to a private repository)
+**/RESUME*.md
+**/OUTSTANDING*.md
+**/PLAN-*.md

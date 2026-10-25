@@ -1,0 +1,114 @@
+<UserControl x:Class="CipherChat.App.Views.ChatView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:CipherChat.Ui;assembly=CipherChat.Ui"
+             AllowDrop="True">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="250"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- rooms, direct messages, people -->
+        <Border Grid.Column="0" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,1,0">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="8,10,8,10">
+                    <DockPanel Margin="4,0,0,4">
+                        <Button x:Name="NewRoomButton" DockPanel.Dock="Right" Content="+" Style="{StaticResource SmallButton}" ToolTip="New room" AutomationProperties.Name="New room" Click="OnNewRoom"/>
+                        <TextBlock Text="ROOMS" Style="{StaticResource NavHeader}" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <StackPanel x:Name="RoomList"/>
+                    <DockPanel Margin="4,12,0,4">
+                        <Button DockPanel.Dock="Right" Content="+" Style="{StaticResource SmallButton}" ToolTip="New direct message" AutomationProperties.Name="New direct message" Click="OnNewDm"/>
+                        <TextBlock Text="DIRECT" Style="{StaticResource NavHeader}" VerticalAlignment="Center"/>
+                    </DockPanel>
+                    <StackPanel x:Name="DmList"/>
+                    <TextBlock Text="PEOPLE" Style="{StaticResource NavHeader}" Margin="4,12,0,4"/>
+                    <StackPanel x:Name="PeopleList"/>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+
+        <DockPanel Grid.Column="1" Background="{DynamicResource ConsoleBg}">
+            <!-- room header -->
+            <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="14,8" Background="{DynamicResource Surface2}">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                        <Button x:Name="VoiceButton" Style="{StaticResource SmallButton}" Margin="0,0,6,0" Click="OnVoice" Visibility="Collapsed"
+                                ToolTip="Voice call (end-to-end encrypted, post-quantum)" AutomationProperties.Name="Voice call"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE717;" FontFamily="{DynamicResource IconFont}" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0"/><TextBlock Text="Voice" VerticalAlignment="Center"/></StackPanel></Button>
+                        <Button x:Name="VideoButton" Style="{StaticResource SmallButton}" Margin="0,0,6,0" Click="OnVideo" Visibility="Collapsed"
+                                ToolTip="Video call (end-to-end encrypted, post-quantum)" AutomationProperties.Name="Video call"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE714;" FontFamily="{DynamicResource IconFont}" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0"/><TextBlock Text="Video" VerticalAlignment="Center"/></StackPanel></Button>
+                        <Button x:Name="MembersButton" Style="{StaticResource SmallButton}" Margin="0,0,6,0" Click="OnMembers" Visibility="Collapsed"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE716;" FontFamily="{DynamicResource IconFont}" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0"/><TextBlock Text="Members" VerticalAlignment="Center"/></StackPanel></Button>
+                        <Button x:Name="RoomSettingsButton" Style="{StaticResource SmallButton}" Click="OnRoomSettings" Visibility="Collapsed"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE713;" FontFamily="{DynamicResource IconFont}" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0"/><TextBlock Text="Room settings" VerticalAlignment="Center"/></StackPanel></Button>
+                    </StackPanel>
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock x:Name="RoomTitle" Text="no room selected" FontFamily="{DynamicResource MonoFont}" Foreground="{DynamicResource Accent}" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="RoomTopic" Margin="12,0,0,0" Foreground="{DynamicResource Muted}"/>
+                        </StackPanel>
+                        <TextBlock x:Name="KeyInfo" Style="{StaticResource Caption}" FontFamily="{DynamicResource MonoFont}"/>
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+
+            <!-- status line -->
+            <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="12,4" Background="{DynamicResource HeaderBg}">
+                <TextBlock x:Name="StatusLine" FontFamily="{DynamicResource MonoFont}" FontSize="{DynamicResource FsCaption}" Foreground="{DynamicResource HeaderMuted}"/>
+            </Border>
+
+            <!-- composer -->
+            <Border DockPanel.Dock="Bottom" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="12,8" Background="{DynamicResource Surface}">
+                <StackPanel>
+                    <StackPanel x:Name="ComposeBar" Margin="0,0,0,6" Visibility="Collapsed"/>
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Bottom">
+                            <Button x:Name="EmojiButton" Content="&#xE76E;" Style="{StaticResource SmallButton}" FontFamily="{DynamicResource IconFont}" FontSize="14" Padding="8,4" Margin="6,0,0,0" ToolTip="Emoji" AutomationProperties.Name="Insert emoji" Click="OnEmoji"/>
+                            <Button x:Name="GifButton" Content="GIF" Style="{StaticResource SmallButton}" FontWeight="SemiBold" Padding="8,4" Margin="6,0,0,0" ToolTip="Send a GIF" AutomationProperties.Name="Send a GIF" Click="OnGif"/>
+                            <Button x:Name="BurnButton" Content="🔥" Style="{StaticResource SmallButton}" Margin="6,0,0,0" ToolTip="Burn after reading (off)" AutomationProperties.Name="Burn after reading" Click="OnBurn"/>
+                            <Button Content="&#xE723;" Style="{StaticResource SmallButton}" FontFamily="{DynamicResource IconFont}" FontSize="14" Padding="8,4" Margin="6,0,0,0" ToolTip="Attach files, pictures or videos (encrypted)" AutomationProperties.Name="Attach files" Click="OnAttach"/>
+                            <Button x:Name="SendButton" Style="{StaticResource PrimaryButton}" Margin="6,0,0,0" Click="OnSend" AutomationProperties.Name="Send"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE724;" FontFamily="{DynamicResource IconFont}" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0"/><TextBlock Text="Send" VerticalAlignment="Center"/></StackPanel></Button>
+                        </StackPanel>
+                        <TextBlock x:Name="Prompt" DockPanel.Dock="Left" FontFamily="{DynamicResource MonoFont}" Foreground="{DynamicResource Accent}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <ui:EmojiTextBox x:Name="Input" Style="{StaticResource ComposeBox}" MaxHeight="180" VerticalScrollBarVisibility="Auto" MaxLength="8000"
+                                         AutomationProperties.Name="Message" PreviewKeyDown="OnInputKey"/>
+                    </DockPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- the log -->
+            <ScrollViewer x:Name="LogScroll" VerticalScrollBarVisibility="Auto" Padding="14,8">
+                <StackPanel>
+                    <Button x:Name="OlderButton" Content="load older messages" Style="{StaticResource SmallButton}" HorizontalAlignment="Center" Visibility="Collapsed" Click="OnOlder"/>
+                    <StackPanel x:Name="Log"/>
+                </StackPanel>
+            </ScrollViewer>
+        </DockPanel>
+
+        <Popup x:Name="EmojiPopup" StaysOpen="False" Placement="Top" AllowsTransparency="True">
+            <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource LineStrong}" BorderThickness="1" Padding="8" Width="360">
+                <StackPanel>
+                    <TextBox x:Name="EmojiSearch" Margin="0,0,0,6" AutomationProperties.Name="Search emoji" TextChanged="OnEmojiSearch"/>
+                    <ScrollViewer Height="240" VerticalScrollBarVisibility="Auto">
+                        <WrapPanel x:Name="EmojiGrid"/>
+                    </ScrollViewer>
+                </StackPanel>
+            </Border>
+        </Popup>
+
+        <Popup x:Name="GifPopup" StaysOpen="False" Placement="Top" AllowsTransparency="True">
+            <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource LineStrong}" BorderThickness="1" Padding="8" Width="350">
+                <StackPanel>
+                    <TextBlock Text="GIFS FROM THIS SESSION" Style="{DynamicResource Label}" Margin="0,0,0,6"/>
+                    <TextBlock x:Name="GifEmpty" TextWrapping="Wrap" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource FsSmall}" Margin="0,0,0,6"
+                               Text="None yet. GIFs you send, and GIFs that play in your rooms, show up here so you can send them again. You can also paste or drop a GIF into the chat."/>
+                    <ScrollViewer MaxHeight="240" VerticalScrollBarVisibility="Auto">
+                        <WrapPanel x:Name="GifGrid"/>
+                    </ScrollViewer>
+                    <Button Content="Choose a GIF…" Style="{StaticResource SmallButton}" HorizontalAlignment="Left" Margin="0,6,0,4" Click="OnChooseGif"/>
+                    <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource Muted}" FontSize="{DynamicResource FsMicro}"
+                               Text="End-to-end encrypted like any attachment. No GIF service sees what you search or send."/>
+                </StackPanel>
+            </Border>
+        </Popup>
+    </Grid>
+</UserControl>

@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Passkeys through Windows' own WebAuthn API (webauthn.dll), the same one browsers use. Windows shows its passkey
+       picker: Windows Hello, a phone or security key, or an installed passkey provider such as Bitwarden. CipherChat
+       never sees a private key; it gets back the signed assertion the server checks (passkeys.py). -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <RootNamespace>CipherChat.Passkeys</RootNamespace>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+  </PropertyGroup>
+</Project>

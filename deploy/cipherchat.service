@@ -1,0 +1,59 @@
+# CipherChat by DarkCipher Systems: the chat server (installed by deploy/install.sh).
+[Unit]
+Description=CipherChat server (end-to-end encrypted, post-quantum chat relay)
+After=network.target
+
+[Service]
+Type=simple
+User=cipherchat
+Group=cipherchat
+EnvironmentFile=/etc/cipherchat/cipherchat.env
+ExecStart=/usr/bin/python3 -I /opt/cipherchat/server/cipherchat/server.py serve
+Restart=on-failure
+RestartSec=5
+UMask=0077
+StateDirectory=cipherchat
+StateDirectoryMode=0700
+
+# Sandboxing: the server only needs its own state directory, its code (read-only) and loopback
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateUsers=true
+KeyringMode=private
+PrivateTmp=true
+PrivateDevices=true
+PrivateIPC=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/cipherchat /etc/cipherchat
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RemoveIPC=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+# Network: loopback only (nginx). To send email, allow your SMTP server in a drop-in, e.g.
+#   systemctl edit cipherchat  ->  [Service] IPAddressAllow=<smtp server address>
+IPAddressAllow=localhost
+IPAddressDeny=any
+# Resources (scrypt sign-ins use up to 64 MiB each, two at a time)
+MemoryMax=384M
+TasksMax=256
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

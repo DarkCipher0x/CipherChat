@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Request access to the secure chat - CipherChat</title>
+  <meta name="description" content="Ask for an invitation to this CipherChat server: end-to-end encrypted, post-quantum chat.">
+  <link rel="icon" href="/chat/public/cipherchat.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/chat/public/base.css?v=20261024a">
+  <link rel="stylesheet" href="/chat/public/portal.css?v=20261024d">
+</head>
+<body class="chat-portal">
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/chat/"><img src="/chat/public/cipherchat.svg" alt=""><span>CipherChat<small>by DarkCipher Systems</small></span></a>
+    <nav class="chat-nav" aria-label="Chat"><a href="/chat/public/privacy.html">Privacy &amp; security</a><a href="/chat/login/">Sign in</a></nav>
+  </div>
+</header>
+<main class="cp-main">
+  <h1>Request access</h1>
+  <p class="dim">The chat is invitation-only. Tell us who you are, and if it's a yes you'll get an invitation email to set up your account. Every request is read by a person.</p>
+
+  <form class="cp-card cp-form" id="req" novalidate>
+    <label>Your name <input type="text" id="name" maxlength="60" autocomplete="name" required></label>
+    <label>Email address <span class="cp-small">(only used to reply and, if approved, to send your invitation)</span>
+      <input type="email" id="email" maxlength="120" autocomplete="email" spellcheck="false" required></label>
+    <label>Who you are and why you'd like access
+      <textarea id="message" rows="5" maxlength="1000" required></textarea></label>
+    <div class="cp-hp" aria-hidden="true"><label>Website <input type="text" id="website" tabindex="-1" autocomplete="off"></label></div>
+    <label class="check"><input type="checkbox" id="agree">
+      <span>I have read the <a href="/chat/public/privacy.html" target="_blank" rel="noopener">privacy &amp; security statement</a> and understand that the service is provided as it is and that I use it, and anything I share through it, entirely at my own risk.</span></label>
+    <p class="cp-err" id="err" role="alert" hidden></p>
+    <p class="cp-ok" id="ok" role="status" hidden>Thanks. Your request has been received; we'll reply by email.</p>
+    <div><button class="btn btn-primary" type="submit" id="go">Send request</button></div>
+  </form>
+
+  <div class="cp-card cp-gap" id="measures">
+    <h2>What protects the chat</h2>
+    <ul>
+      <li>End-to-end encryption on your own device: the server stores only ciphertext it can't read.</li>
+      <li>Post-quantum hybrid cryptography: ML-KEM-1024 + X25519 key exchange, ML-DSA-87 + Ed25519 signatures, AES-256-GCM.</li>
+      <li>Your keys sealed with a passphrase only you know; identities verified person to person with safety numbers.</li>
+      <li>Encrypted pictures, videos and files; burn-after-reading messages; rooms re-keyed when people leave.</li>
+      <li>Sign-in with password and authenticator code; post-quantum TLS on the connection.</li>
+    </ul>
+    <p class="cp-small">The full details, including what the server can still see and what no encryption can prevent, are in the <a href="/chat/public/privacy.html">privacy &amp; security statement</a>.</p>
+  </div>
+</main>
+<script src="/chat/public/request.js?v=20261024a"></script>
+</body>
+</html>

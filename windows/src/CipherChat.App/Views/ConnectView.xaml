@@ -1,0 +1,48 @@
+<UserControl x:Class="CipherChat.App.Views.ConnectView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel MaxWidth="640" Margin="24,32,24,32">
+            <TextBlock Text="Connect to a CipherChat server" Style="{StaticResource PageTitle}"/>
+            <TextBlock Style="{StaticResource BodySecondary}" TextWrapping="Wrap" Margin="0,4,0,18"
+                       Text="End-to-end encrypted with post-quantum cryptography. CipherChat only connects over TLS 1.3 with post-quantum key exchange (X25519MLKEM768), and refuses any server that can't."/>
+
+            <Border x:Name="SavedCard" Style="{StaticResource Card}" Margin="0,0,0,14" Visibility="Collapsed">
+                <StackPanel>
+                    <TextBlock Text="This PC is paired with" Style="{StaticResource CardTitle}"/>
+                    <ItemsControl x:Name="SavedList" Margin="0,8,0,0"/>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                <StackPanel>
+                    <TextBlock Text="Pair this PC with a code" Style="{StaticResource CardTitle}"/>
+                    <TextBlock Style="{StaticResource BodySecondary}" TextWrapping="Wrap" Margin="0,4,0,10"
+                               Text="In the web chat (signed in with your password and code), type /pair and paste the code here. The PC then signs in on its own, chat only, until you remove the pairing."/>
+                    <TextBlock Text="PAIRING CODE" Style="{StaticResource Label}"/>
+                    <TextBox x:Name="CodeBox" FontFamily="{DynamicResource MonoFont}" TextWrapping="Wrap" Height="56" AutomationProperties.Name="Pairing code"/>
+                    <CheckBox x:Name="HelloSwitch" Style="{StaticResource Switch}" Content="Protect the pairing with Windows Hello (face, fingerprint or PIN each time CipherChat starts)" Margin="0,10,0,0"/>
+                    <Button Content="Pair and connect" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left" Margin="0,12,0,0" Click="OnPair"/>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Margin="0">
+                <StackPanel>
+                    <TextBlock Text="Or sign in with a passkey or your password" Style="{StaticResource CardTitle}"/>
+                    <TextBlock Style="{StaticResource BodySecondary}" TextWrapping="Wrap" Margin="0,4,0,10"
+                               Text="For a one-off session. Nothing is remembered on this PC. A passkey needs only the server address: Windows asks for Windows Hello, your phone, or your password manager (Bitwarden and others that act as a Windows passkey provider)."/>
+                    <TextBlock Text="SERVER" Style="{StaticResource Label}"/>
+                    <TextBox x:Name="ServerBox" Text="https://" AutomationProperties.Name="Server address" Margin="0,0,0,8"/>
+                    <Button x:Name="PasskeyButton" Content="Sign in with a passkey" HorizontalAlignment="Left" Margin="0,0,0,14" Click="OnPasskey"/>
+                    <TextBlock Text="USERNAME" Style="{StaticResource Label}"/>
+                    <TextBox x:Name="UserBox" AutomationProperties.Name="Username" Margin="0,0,0,8"/>
+                    <TextBlock Text="PASSWORD" Style="{StaticResource Label}"/>
+                    <PasswordBox x:Name="PassBox" AutomationProperties.Name="Password" Margin="0,0,0,8"/>
+                    <TextBlock Text="AUTHENTICATOR CODE" Style="{StaticResource Label}"/>
+                    <TextBox x:Name="TotpBox" MaxLength="6" Width="140" HorizontalAlignment="Left" FontFamily="{DynamicResource MonoFont}" AutomationProperties.Name="Authenticator code"/>
+                    <Button Content="Sign in" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left" Margin="0,12,0,0" Click="OnSignIn" IsDefault="True"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -1,0 +1,43 @@
+<!--
+  DarkCipher Setup: the themed setup program (Setup.exe) around an app's MSI. TEMPLATE: nothing in this file names an app.
+  Each app supplies installer\setup-app.wxi (its name, permanent bundle UpgradeCode, icon, and the MSI properties the
+  setup passes through) and installer\setup-app.json (the texts and options the setup app shows). See installer\Setup\README.md.
+
+  The MSI stays the engine and stays deployable on its own (msiexec, Group Policy, Intune): this bundle only gives the
+  double-click download a modern face. Built by build.ps1 with:
+    wix build installer\Setup\Bundle.wxs -d Version=<ver> -d MsiPath=<msi>
+              -d SetupBin=installer\Setup\bin\Release\net48\win-x64
+              -d AppInclude=installer\setup-app.wxi -o dist\<ver>\<App>-<ver>-Setup.exe
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <?include $(var.AppInclude)?>
+  <Bundle Name="$(var.AppName)" Manufacturer="$(var.Manufacturer)" Version="$(var.Version)" UpgradeCode="$(var.BundleUpgradeCode)"
+          IconSourceFile="$(var.AppIcon)" AboutUrl="$(var.AboutUrl)" Compressed="yes">
+    <!-- WiX 5: the setup program is its own process (DarkCipher.Setup.exe, .NET Framework 4.8), started by Burn. -->
+    <BootstrapperApplication SourceFile="$(var.SetupBin)\DarkCipher.Setup.exe">
+      <Payload SourceFile="$(var.SetupBin)\DarkCipher.Setup.exe.config" />
+      <Payload SourceFile="$(var.SetupBin)\WixToolset.BootstrapperApplicationApi.dll" />
+      <Payload SourceFile="$(var.SetupBin)\mbanative.dll" />
+      <Payload SourceFile="$(var.SetupConfig)" Name="setup-app.json" />
+      <Payload SourceFile="$(var.AppLogo)" Name="logo.png" />
+      <Payload SourceFile="$(var.LicenseFile)" Name="LICENSE.txt" />
+    </BootstrapperApplication>
+
+    <!-- The choices the setup app makes, handed to the MSI as properties (empty = the MSI decides, as on its own). -->
+    <Variable Name="InstallFolder" Type="formatted" Value="$(var.DefaultInstallFolder)" />
+    <Variable Name="LaunchTarget" Type="formatted" Value="$(var.LaunchTarget)" />
+
+    <Chain>
+      <MsiPackage Id="App" SourceFile="$(var.MsiPath)" Vital="yes">
+        <MsiProperty Name="$(var.InstallFolderProperty)" Value="[InstallFolder]" />
+        <!-- One Add/Remove Programs entry (the setup's); the MSI's own entry returns when the MSI is installed directly. -->
+        <MsiProperty Name="ARPSYSTEMCOMPONENT" Value="1" />
+        <?include $(var.AppMsiProperties)?>
+      </MsiPackage>
+      <!-- Optional: the app's extra packages (setup-app.json options with "package"), e.g. an installer with its own wizard. -->
+      <?ifdef AppPackages?>
+      <?include $(var.AppPackages)?>
+      <?endif?>
+    </Chain>
+  </Bundle>
+</Wix>

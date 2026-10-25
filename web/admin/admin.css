@@ -1,0 +1,53 @@
+/* CipherChat admin page: requests, people, audit log. */
+.adm-main { max-width: 1100px; margin: 0 auto; padding: 36px 20px 80px; }
+.adm-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin: 18px 0 20px; flex-wrap: wrap; }
+.adm-tabs button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--fg-dim); font: 600 .95rem var(--sans);
+  padding: 10px 14px; cursor: pointer; }
+.adm-tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+.adm-tabs .badge { font: 600 .75rem var(--mono); color: var(--accent-ink); background: var(--accent); border-radius: 9px; padding: 1px 7px; margin-left: 4px; }
+.adm-tabs .badge:empty { display: none; }
+.adm-filters, .adm-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.adm-filters .active { border-color: var(--accent); color: var(--accent); }
+.adm-card { padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(180deg, var(--panel), var(--bg-2)); margin-bottom: 14px; }
+.adm-card h2 { font-size: 1.05rem; margin: 0 0 4px; }
+.adm-card .meta { font: .82rem var(--mono); color: var(--fg-mute); margin-bottom: 10px; }
+.adm-card pre { white-space: pre-wrap; word-break: break-word; font: .92rem/1.5 var(--sans); color: var(--fg-dim); margin: 0 0 12px; }
+.adm-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.adm-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+.adm-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.adm-table th { text-align: left; font: 600 .78rem var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--fg-mute);
+  padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--bg-2); }
+.adm-table td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.adm-table tr:last-child td { border-bottom: 0; }
+.adm-table .mono { font-family: var(--mono); font-size: .85rem; }
+.tag { display: inline-block; font: 600 .75rem var(--mono); padding: 1px 8px; border-radius: 9px; border: 1px solid var(--line-2); color: var(--fg-dim); }
+.tag.ok { color: #36d27a; border-color: rgba(54,210,122,.4); }
+.tag.warn { color: var(--warn); border-color: rgba(242,193,78,.4); }
+.tag.bad { color: #ff8a8a; border-color: rgba(255,122,122,.4); }
+dialog.adm-dialog { background: var(--panel); color: var(--fg); border: 1px solid var(--line-2); border-radius: var(--radius); padding: 22px;
+  width: min(520px, calc(100vw - 32px)); }
+dialog.adm-dialog::backdrop { background: rgba(0,0,0,.6); }
+dialog.adm-dialog h2 { font-size: 1.15rem; margin: 0 0 12px; }
+.adm-dialog .cp-form { gap: 12px; }
+.adm-dialog select, .adm-dialog .cp-form input { padding: 9px 11px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--bg); color: var(--fg); font: .95rem var(--sans); }
+.adm-dialog .btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.link-box { display: flex; gap: 8px; align-items: center; margin: 10px 0; }
+.link-box code { flex: 1; padding: 9px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--bg); word-break: break-all; font-size: .8rem; }
+/* settings, email, roles and the per-person permissions editor */
+.adm-form { display: grid; gap: 18px; margin-bottom: 18px; }
+.adm-fieldset { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; display: grid; gap: 10px; background: linear-gradient(180deg, var(--panel), var(--bg-2)); }
+.adm-fieldset legend { font: 600 .8rem var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--fg-mute); padding: 0 6px; }
+.adm-fieldset label { display: grid; gap: 4px; font-size: .9rem; color: var(--fg-dim); }
+.adm-fieldset label.check, .adm-dialog label.check { display: flex; align-items: center; gap: 8px; }
+.adm-fieldset input:not([type=checkbox]), .adm-fieldset select, .adm-row input { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line-2);
+  background: var(--bg); color: var(--fg); font: .92rem var(--sans); max-width: 460px; }
+.adm-fieldset .adm-table input:not([type=checkbox]) { max-width: 100%; width: 100%; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.perm-editor { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; max-height: 46vh; overflow: auto; }
+.perm-editor legend { font: 600 .75rem var(--mono); color: var(--fg-mute); padding: 0 4px; }
+.perm-group { font: 600 .72rem var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--accent); margin-top: 6px; }
+.perm-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; font-size: .88rem; }
+.perm-row code { grid-column: 1; font-size: .72rem; color: var(--fg-mute); }
+.perm-row select { grid-column: 2; grid-row: 1 / span 2; padding: 5px 8px; }
+.adm-dialog { max-height: 90vh; overflow: auto; }
+.mute { color: var(--fg-mute); font-size: .82rem; }

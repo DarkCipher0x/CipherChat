@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <NoWarn>$(NoWarn);CA1707;CA1515;xUnit1031</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CipherChat.Crypto\CipherChat.Crypto.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- One copy of the cross-platform fixtures: made by the browser (crypto.js) and the phone (BouncyCastle Java),
+         kept with the Android tests; this project adds windows-made.json for the other two to open. -->
+    <None Include="..\..\..\android\core\crypto\src\test\resources\interop\browser-made.json" Link="interop\browser-made.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\android\core\crypto\src\test\resources\interop\phone-made.json" Link="interop\phone-made.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\android\core\crypto\src\test\resources\interop\browser-files.json" Link="interop\browser-files.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

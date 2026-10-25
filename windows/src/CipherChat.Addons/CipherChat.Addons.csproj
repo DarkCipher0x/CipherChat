@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The add-on SDK (docs/ADDONS.md): connector codes, signed requests (HMAC-SHA3-256), the add-on's keys sealed with
+       DPAPI, and AddonHost, which runs the chat engine as the add-on and hands it live commands from verified people.
+       Connectors (CipherChat.Connector) are built on it. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>CipherChat.Addons</RootNamespace>
+    <NoWarn>$(NoWarn);CA1001</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\CipherChat.Engine\CipherChat.Engine.csproj" />
+    <ProjectReference Include="..\CipherChat.Transport\CipherChat.Transport.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="CipherChat.Addons.Tests" />
+  </ItemGroup>
+</Project>

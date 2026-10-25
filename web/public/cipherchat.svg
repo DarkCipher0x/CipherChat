@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="CipherChat">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5ff2ea"/>
+      <stop offset="1" stop-color="#1fa9a3"/>
+    </linearGradient>
+  </defs>
+  <rect x="3" y="3" width="58" height="58" rx="14" fill="#081313" stroke="url(#g)" stroke-width="3"/>
+  <path d="M15 17 H49 A4 4 0 0 1 53 21 V38 A4 4 0 0 1 49 42 H29 L20 49 V42 H15 A4 4 0 0 1 11 38 V21 A4 4 0 0 1 15 17 Z" fill="none" stroke="url(#g)" stroke-width="3.5" stroke-linejoin="round"/>
+  <path d="M20 25 L26 30 L20 35" fill="none" stroke="url(#g)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="30" y="33" width="14" height="3.5" rx="1.75" fill="#3dd6d0"/>
+</svg>

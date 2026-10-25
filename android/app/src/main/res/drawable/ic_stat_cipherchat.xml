@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status bar: the mark's bubble and prompt in white (Android tints it). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="64" android:viewportHeight="64">
+    <path android:pathData="M15,17 H49 A4,4 0 0 1 53,21 V38 A4,4 0 0 1 49,42 H29 L20,49 V42 H15 A4,4 0 0 1 11,38 V21 A4,4 0 0 1 15,17 Z"
+        android:strokeColor="#FFFFFFFF" android:strokeWidth="4.5" android:strokeLineJoin="round" android:fillColor="#00000000" />
+    <path android:pathData="M20,25 L26,30 L20,35" android:strokeColor="#FFFFFFFF" android:strokeWidth="4.5"
+        android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000" />
+    <path android:pathData="M31.75,32.5 H42.25 A2.25,2.25 0 0 1 42.25,37 H31.75 A2.25,2.25 0 0 1 31.75,32.5 Z" android:fillColor="#FFFFFFFF" />
+</vector>

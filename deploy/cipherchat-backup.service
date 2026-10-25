@@ -1,0 +1,45 @@
+# CipherChat by DarkCipher Systems: one backup (database snapshot + encrypted attachments), run daily by
+# cipherchat-backup.timer. Written by cipherchat-setup, which fills in the folder and how many to keep.
+[Unit]
+Description=CipherChat backup
+After=cipherchat.service
+
+[Service]
+Type=oneshot
+User=cipherchat
+Group=cipherchat
+EnvironmentFile=/etc/cipherchat/cipherchat.env
+ExecStart=/usr/bin/python3 -I /opt/cipherchat/server/cipherchat/server.py backup @BACKUP_DIR@ @BACKUP_KEEP@
+UMask=0077
+StateDirectory=cipherchat
+StateDirectoryMode=0700
+ReadWritePaths=@BACKUP_DIR@
+NoNewPrivileges=true
+CapabilityBoundingSet=
+PrivateTmp=true
+PrivateDevices=true
+PrivateNetwork=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/cipherchat /etc/cipherchat
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+PrivateUsers=true
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+Nice=10
+IOSchedulingClass=idle
