@@ -37,7 +37,7 @@ pop-up and taskbar flash. Data lives in `%LOCALAPPDATA%\CipherChat`.
 ```powershell
 cd windows
 dotnet test                                                     # unit tests (live ones need CIPHERCHAT_DEV_*)
-powershell -File tools\build-installers.ps1                     # dist\<version>\ MSI + Setup.exe + Connector + SHA256SUMS
+powershell -File tools\build-installers.ps1                     # dist\<version>\ MSI + Setup.exe + SHA256SUMS
 ```
 
 Signing: set `DCX_SIGN_THUMBPRINT` to a code-signing certificate's thumbprint (Windows SDK signtool) and the script

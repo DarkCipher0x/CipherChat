@@ -34,7 +34,7 @@ web/**/*.css
 web/**/*.json
 web/**/*.svg
 web/**/LICENSE
-# Windows: apps, server, connector, SDK, installers, tests
+# Windows: app, add-on SDK, installers, tests
 windows/.config/dotnet-tools.json
 windows/CipherChat.sln
 windows/Directory.Build.props

@@ -1,6 +1,6 @@
 # Release step "release": the GitHub Release "CipherChat <ver>" on tag v<ver> (pushed by the mirror step).
 #   Notes   docs/release-notes/<ver>.md from the staged public copy (the same text as the repository), plus the downloads
-#   Files   every file in Get-ReleaseFiles (installers, APK, Linux release, connector, source zip, checksums, notes,
+#   Files   every file in Get-ReleaseFiles (installers, APK, Linux release, source zip, checksums, notes,
 #           test report), all from dist\<ver>\ (checked by the verify step)
 # GitHub reports its own SHA-256 of every upload; it must equal ours. A release that exists is completed, never changed:
 # missing files are uploaded, present files must match, and a mismatch stops the step (fix: a new version).
@@ -32,7 +32,6 @@ $notes
 | ``CipherChat-$Version-Setup.exe`` | The Windows app (Windows 10 2004+ / 11). ``CipherChat-$Version-x64.msi`` is the same for administrators (msiexec, GPO, Intune). |
 | ``CipherChat-$Version.apk`` | The Android app (Android 12+), signed. Its signing certificate is in ``android-signing-certificate.sha256``. |
 | ``cipherchat-server-$Version-linux.tar.gz`` | The server for Linux: ``tar xzf``, then ``sudo sh cipherchat-server-$Version/install.sh`` (docs/LINUX-SERVER.md). |
-| ``CipherChat-Connector-$Version-win-x64.zip`` | Add-ons: brings DarkCipher CommandCentre, or any MCP system, into the chat (docs/ADDONS.md). |
 | ``CipherChat-$Version-source.zip`` | The source this release was built from (the same files as this repository at ``$tag``). |
 | ``SHA256SUMS`` | SHA-256 of every file. ``tests-$Version.txt`` is the test report of this build. |
 

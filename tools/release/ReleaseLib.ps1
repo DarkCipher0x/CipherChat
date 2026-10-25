@@ -26,7 +26,6 @@ function Get-ReleaseFiles([string]$Version) {
         @{ File = "CipherChat-$Version-x64.msi"; Role = 'msi'; Label = 'Windows app MSI (for administrators)'; Site = 'downloads' },
         @{ File = "CipherChat-$Version.apk"; Role = 'android'; Label = 'Android app (.apk, signed)'; Site = 'downloads' },
         @{ File = "cipherchat-server-$Version-linux.tar.gz"; Role = 'server-linux'; Label = 'Linux server (.tar.gz)'; Site = 'downloads' },
-        @{ File = "CipherChat-Connector-$Version-win-x64.zip"; Role = 'connector'; Label = 'CipherChat Connector (add-ons, CommandCentre)'; Site = 'downloads' },
         @{ File = "CipherChat-$Version-source.zip"; Role = 'source'; Label = 'Source code (.zip)'; Site = 'downloads/source' },
         @{ File = 'SHA256SUMS'; Role = 'checksums'; Label = 'SHA-256 of every file'; Site = $null },
         @{ File = "CipherChat-$Version.apk.sha256"; Role = 'checksum'; Label = 'APK SHA-256'; Site = $null },

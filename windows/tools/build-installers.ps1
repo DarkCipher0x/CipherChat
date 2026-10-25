@@ -1,6 +1,5 @@
 # CipherChat by DarkCipher Systems: builds the Windows installers into dist\<version>\
 #   CipherChat-<ver>-x64.msi, CipherChat-<ver>-Setup.exe    (the app)
-#   CipherChat-Connector-<ver>-win-x64.zip                  (add-ons)
 # The server is Linux only (tools\build-linux-release.sh).
 # Self-contained .NET (no runtime to install), WiX 5 (pinned in .config\dotnet-tools.json), the DarkCipher Setup
 # template (installer\Setup) around the MSI. Signs with Authenticode when DCX_SIGN_THUMBPRINT is set.
@@ -68,25 +67,6 @@ foreach ($p in @(@{ Dir = 'client'; Msi = $clientMsi; Exe = "CipherChat-$Version
     Sign $exe
 }
 Remove-Item (Join-Path $out '*.wixpdb') -ErrorAction SilentlyContinue
-
-Step 'CipherChat Connector (add-ons: CommandCentre and other MCP systems), a zip'
-$conn = Join-Path $stage 'connector'
-dotnet publish src\CipherChat.Connector\CipherChat.Connector.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true `
-    -p:IncludeNativeLibrariesForSelfExtract=true -o $conn -nologo -v q; Check 'publish connector'
-Get-ChildItem $conn -Recurse -Include *.pdb | Remove-Item -Force
-Copy-Item (Join-Path $repo 'docs\ADDONS.md') (Join-Path $conn 'README.md')
-Copy-Item (Join-Path $repo 'LICENSE'), (Join-Path $repo 'THIRD-PARTY-NOTICES.md') $conn
-Sign (Join-Path $conn 'CipherChatConnector.exe')
-$connZip = Join-Path $out "CipherChat-Connector-$Version-win-x64.zip"
-if (Test-Path $connZip) { Remove-Item $connZip }
-Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
-$z = [IO.Compression.ZipFile]::Open($connZip, [IO.Compression.ZipArchiveMode]::Create)
-try {
-    foreach ($f in Get-ChildItem $conn -Recurse -File) {         # '/' in entry names: PowerShell 5.1's zip tools write '\'
-        $name = $f.FullName.Substring($conn.Length).TrimStart('\').Replace('\', '/')
-        [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($z, $f.FullName, $name, [IO.Compression.CompressionLevel]::Optimal)
-    }
-} finally { $z.Dispose() }
 
 Step 'Checksums'
 $sums = Get-ChildItem $out -File | Where-Object Name -ne 'SHA256SUMS' | Sort-Object Name | ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower() + '  ' + $_.Name }

@@ -6,7 +6,7 @@ source zip are the same bytes with the same SHA-256.
 ## 1. Build
 
 ```
-powershell -ExecutionPolicy Bypass -File windows\tools\build-installers.ps1      # Setup.exe + MSI for the app, the Connector
+powershell -ExecutionPolicy Bypass -File windows\tools\build-installers.ps1      # Setup.exe + MSI for the app
 powershell -ExecutionPolicy Bypass -File android\tools\release.ps1               # host tests, then the signed APK
 sh tools/build-linux-release.sh 0.1.2                                            # the Linux server tarball (Linux or WSL)
 powershell -ExecutionPolicy Bypass -File tools\release\finish-dist.ps1           # source zip, release notes, test report, SHA256SUMS

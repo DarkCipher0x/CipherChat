@@ -60,8 +60,8 @@ didn't certify, the owner's key itself), you get a warning and those messages ar
   and Windows keep them sealed until you unlock); the apps warn you before closing with messages still waiting, and the
   web chat keeps them only while its tab is open.
 
-* **Add-ons** (tagged *add-on*, named `addon.…`) are programs, such as the CommandCentre connector: type its prefix
-  (for example `!cc help`) in a room it's in. They only see rooms they were added to and the owner certifies them like
+* **Add-ons** (tagged *add-on*, named `addon.…`) are programs, such as bots: talk to one the way it
+  describes, in a room it's in. They only see rooms they were added to and the owner certifies them like
   people. The owner manages them with `/addons` (docs/ADDONS.md).
 
 ## 5. Calls

@@ -286,7 +286,7 @@
         </Setter>
     </Style>
 
-    <!-- ===== Window chrome (WindowFrame.cs): the 40 px top bar every window draws itself, like CommandCentre ===== -->
+    <!-- ===== Window chrome (WindowFrame.cs): the 40 px top bar every window draws itself ===== -->
     <Style x:Key="ChromeButton" TargetType="Button">
         <Setter Property="Foreground" Value="{DynamicResource HeaderFg}"/>
         <Setter Property="Background" Value="Transparent"/>

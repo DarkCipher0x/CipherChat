@@ -686,12 +686,12 @@ class Server(unittest.TestCase):
         for bad in ({"name": "-x"}, {"name": "UPPER"}, {"name": "a" * 27}, {"name": "ok", "scopes": ["admin"]},
                     {"name": "ok", "ip_allow": ["not-an-ip"]}, {"name": "ok", "rate": 5}, {"name": "ok", "days": 9999}):
             self.assertEqual(self.api("addons", bad, owner)[0], 400, bad)
-        code, j = self.api("addons", {"name": "commandcentre", "display_name": "CommandCentre", "scopes": ["send", "files"],
+        code, j = self.api("addons", {"name": "opsbot", "display_name": "Ops bot", "scopes": ["send", "files"],
                                       "description": "fleet status"}, owner)
         self.assertEqual(code, 200, j)
         user, key, origin = self.decode_code(j["code"])
-        self.assertEqual((user, origin, len(key)), ("addon.commandcentre", self.origin, 32))
-        self.assertEqual(self.api("addons", {"name": "commandcentre"}, owner)[0], 409)
+        self.assertEqual((user, origin, len(key)), ("addon.opsbot", self.origin, 32))
+        self.assertEqual(self.api("addons", {"name": "opsbot"}, owner)[0], 409)
         lst = self.api("addons", None, owner)[1]["addons"]
         self.assertEqual([(a["user"], a["scopes"], a["enabled"]) for a in lst], [(user, ["files", "send"], True)])
         self.assertNotIn("code", json.dumps(lst))                                  # never shown again

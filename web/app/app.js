@@ -842,7 +842,7 @@ async function pairDevice(name) {
 }
 
 // --------------------------------------------------------------------------------------------- add-ons (owner)
-// Programs with an identity of their own (docs/ADDONS.md): bots and connectors such as CommandCentre. The connector
+// Programs with an identity of their own (docs/ADDONS.md): bots and integrations. The connector
 // code (server, add-on, 256-bit request key) is shown once; the add-on then makes its own post-quantum identity, which
 // the owner certifies like a person's (/verify addon.name), and room admins add it to the rooms it should see.
 const ADDON_SCOPES = { send: "send messages, reactions and edits", files: "upload and download attachments", dm: "start direct messages" };

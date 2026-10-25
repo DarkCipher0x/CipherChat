@@ -1,5 +1,5 @@
 # Release step "verify": the pre-publish checks on dist\<ver>\. It only reads, so it is always safe to run again.
-#   - every expected file is there (installers, APK, Linux release, connector, source zip, notes, checksums, test report);
+#   - every expected file is there (installers, APK, Linux release, source zip, notes, checksums, test report);
 #   - SHA256SUMS verifies, and lists every file in the folder;
 #   - the version agrees everywhere: windows\Directory.Build.props, the MSI, the server, the Android app, the notes,
 #     the Linux release's folder name, and the source zip's copies of them;

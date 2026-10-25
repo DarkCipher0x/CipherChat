@@ -1,7 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- The add-on SDK (docs/ADDONS.md): connector codes, signed requests (HMAC-SHA3-256), the add-on's keys sealed with
-       DPAPI, and AddonHost, which runs the chat engine as the add-on and hands it live commands from verified people.
-       Connectors (CipherChat.Connector) are built on it. -->
+       DPAPI, and AddonHost, which runs the chat engine as the add-on and hands it live commands from verified people. -->
   <PropertyGroup>
     <TargetFramework>net8.0-windows</TargetFramework>
     <RootNamespace>CipherChat.Addons</RootNamespace>

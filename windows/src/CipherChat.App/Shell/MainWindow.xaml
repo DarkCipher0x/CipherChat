@@ -7,7 +7,7 @@
         UseLayoutRounding="True" TextOptions.TextFormattingMode="Display"
         WindowStartupLocation="CenterScreen">
     <DockPanel x:Name="Root">
-        <!-- the top bar (WindowFrame.cs, as in CommandCentre): brand, the post-quantum status, the signed-in account,
+        <!-- the top bar (WindowFrame.cs): brand, the post-quantum status, the signed-in account,
              Settings and Lock, then the caption buttons. Drag it to move the window; double-click to maximise. -->
         <Border DockPanel.Dock="Top" Height="40" Background="{DynamicResource HeaderBg}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1">
             <DockPanel LastChildFill="False">

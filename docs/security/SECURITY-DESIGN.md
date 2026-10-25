@@ -145,7 +145,7 @@ ciphertext and its metadata live.
   memory only; nothing unsent is written to disk in the clear, and the web keeps them in the tab only. Resends reuse
   the signed message id, and the server checks it first, so retries can't duplicate or replay a message.
 
-## 7a. Add-ons and connectors (docs/ADDONS.md)
+## 7a. Add-ons (docs/ADDONS.md)
 
 * Add-ons are chat members with their own hybrid PQ identity made on their own machine and certified by the owner;
   end-to-end encryption and the trust model are unchanged, and every client labels them (`addon.` names are reserved).
@@ -156,8 +156,6 @@ ciphertext and its metadata live.
 * A route allowlist (state, poll, history, room keys of its own rooms, send, attachments, DMs, leave) with per-add-on
   scopes, IP allowlist, expiry and rate limit; no account, device, backup, certificate, room-admin, key-rotation or call
   routes; no password/passkey sign-in; owner-only management behind a fresh authenticator code; every refusal audited.
-* Connectors (CommandCentre via MCP) answer only verified people, read-only unless the configuration names operators,
-  never pass chat text into scripts, commands or file paths, and leave the connected system's own approvals in place.
 
 ## 8. Supply chain and release
 

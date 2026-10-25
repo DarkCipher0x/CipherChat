@@ -11,8 +11,8 @@ licences. Versions are pinned; the hashes are checked when the builds fetch them
 | Bouncy Castle for .NET (BouncyCastle.Cryptography) | Windows app (PQ TLS, crypto) | 2.7.0 | MIT (Bouncy Castle licence) |
 | Bouncy Castle for Java (bcprov, bcutil, bctls) | Android app (crypto, PQ TLS) | 1.86 / 1.86.2 | MIT (Bouncy Castle licence) |
 | Microsoft Edge WebView2 SDK | Windows app (call window) | 1.0.4191.47 | BSD-3-Clause (Microsoft) |
-| .NET 8 runtime (self-contained in the Windows installer) | Windows app, Connector | 8.0 | MIT |
-| System.Security.Cryptography.ProtectedData | Windows app, Connector (DPAPI) | 8.0 | MIT |
+| .NET 8 runtime (self-contained in the Windows installer) | Windows app | 8.0 | MIT |
+| System.Security.Cryptography.ProtectedData | Windows app, add-on SDK (DPAPI) | 8.0 | MIT |
 | AndroidX (Compose, Activity, Core, Biometric, Fragment, WebKit, Credentials), Kotlin, kotlinx.coroutines, kotlinx.serialization | Android app | see `android/gradle/libs.versions.toml` | Apache-2.0 |
 | Google Play services code scanner, Credential Manager Play services provider | Android app (QR pairing, passkeys) | 16.1.0, 1.5.0 | Android Software Development Kit License |
 | WiX Toolset (build only) | Windows installer | 5.0.2 | MS-RL (the installers it builds aren't covered) |

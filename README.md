@@ -25,7 +25,7 @@ open so anyone can check it does what it says.
 | **Web chat** | any current browser, served by the server at `/chat/` | `web/` |
 | **Windows app** | Windows 10 (2004+) / 11 | `windows/` — guide: [docs/WINDOWS.md](docs/WINDOWS.md) |
 | **Android app** | Android 12+ | `android/` — guide: [docs/ANDROID.md](docs/ANDROID.md) |
-| **Add-ons & connectors** | signed post-quantum add-on API, CommandCentre connector, .NET SDK | `windows/src/CipherChat.Addons`, `CipherChat.Connector` — guide: [docs/ADDONS.md](docs/ADDONS.md) |
+| **Add-ons** | signed post-quantum add-on API and a .NET SDK | `windows/src/CipherChat.Addons` — guide: [docs/ADDONS.md](docs/ADDONS.md) |
 | Mac / iOS | planned, same protocol | [docs/MAC-IOS-HANDOFF.md](docs/MAC-IOS-HANDOFF.md) |
 
 ## Downloads (release 0.1.2)
@@ -35,7 +35,6 @@ open so anyone can check it does what it says.
 | `CipherChat-0.1.2-Setup.exe` | Windows app, themed installer (the MSI beside it is for administrators: `msiexec`, GPO, Intune) |
 | `cipherchat-server-0.1.2-linux.tar.gz` | Linux server: `tar xzf …; sudo sh cipherchat-server-0.1.2/install.sh` |
 | `CipherChat-0.1.2.apk` | Android app, signed (certificate SHA-256 in `android-signing-certificate.sha256`) |
-| `CipherChat-Connector-0.1.2-win-x64.zip` | add-on connectors: CommandCentre (and any MCP system) in the chat — [docs/ADDONS.md](docs/ADDONS.md) |
 | `SHA256SUMS` | checksums of everything |
 
 ## Screenshots

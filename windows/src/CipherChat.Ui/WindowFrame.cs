@@ -8,7 +8,7 @@ using System.Windows.Shell;
 namespace CipherChat.Ui;
 
 /// <summary>
-/// The DarkCipher Systems window frame, as in CommandCentre: no Windows title bar, a 40 px top bar of the app's own
+/// The DarkCipher Systems window frame: no Windows title bar, a 40 px top bar of the app's own
 /// (brand, status, actions) with Fluent caption buttons, Windows 11 rounded corners and a dark border, snap layouts on
 /// the maximise button, and a maximised window kept on screen. Windows draw their bar with <see cref="Bar"/> (or in
 /// XAML with the ChromeButton styles) and call <see cref="Apply"/>.
