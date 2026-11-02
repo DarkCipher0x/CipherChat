@@ -17,12 +17,15 @@ import systems.darkcipher.cipherchat.client.ApiException
 import systems.darkcipher.cipherchat.client.AskCode
 import systems.darkcipher.cipherchat.client.ChatApi
 import systems.darkcipher.cipherchat.client.ChatEngine
+import systems.darkcipher.cipherchat.client.KeyStore
+import systems.darkcipher.cipherchat.client.StoreGuard
 import systems.darkcipher.cipherchat.client.LoopbackDevTransport
 import systems.darkcipher.cipherchat.client.Me
 import systems.darkcipher.cipherchat.client.Pairing
 import systems.darkcipher.cipherchat.client.PqTlsTransport
 import systems.darkcipher.cipherchat.client.Transport
 import systems.darkcipher.cipherchat.call.CallBridge
+import systems.darkcipher.cipherchat.security.StoreSeal
 import systems.darkcipher.cipherchat.security.Vault
 import java.io.File
 import java.net.URI
@@ -56,6 +59,8 @@ data class Saved(val servers: List<SavedServer> = emptyList(), val autoLockMinut
  */
 class Session(filesDir: File, private val devBuild: Boolean) {
     val vault = Vault(filesDir)
+    /** Room keys this phone keeps, one sealed file per server and person (never backed up, see data_extraction_rules). */
+    private val keysDir = File(filesDir, "keys")
 
     enum class Stage { VaultLocked, Connect, Gate, Chat }
 
@@ -160,6 +165,11 @@ class Session(filesDir: File, private val devBuild: Boolean) {
         a.ask = ask
         val e = ChatEngine(a, me)
         engine = e
+        // Without a store the chat still works, from the server's wrapped keys only (as before 1.1)
+        try {
+            val name = "CipherChat on Android, " + java.text.SimpleDateFormat("d MMM", java.util.Locale.UK).format(java.util.Date())
+            e.useStore(me.openStore(KeyStore.pathFor(keysDir, a.originText, me.user), KeystoreGuard, name))
+        } catch (x: Exception) { }
         e.start()
         CallBridge.engine = e
         // messages that were still waiting when the chat last locked go back in the queue
@@ -211,6 +221,12 @@ class Session(filesDir: File, private val devBuild: Boolean) {
         if (forgetPhone && s != null) forget(s)
         api = null; state = null; server = null
         _stage.value = Stage.Connect
+    }
+
+    /** The key store file sealed by this phone's hardware ([StoreSeal]). */
+    private object KeystoreGuard : StoreGuard {
+        override fun protect(plain: ByteArray) = StoreSeal.protect(plain)
+        override fun unprotect(sealed: ByteArray) = StoreSeal.unprotect(sealed)
     }
 
     companion object { const val USER_AGENT = "CipherChat/" + BuildConfig.VERSION_NAME + " (Android)" }

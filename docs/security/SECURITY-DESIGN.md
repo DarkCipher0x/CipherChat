@@ -1,6 +1,6 @@
 # CipherChat security design report
 
-Release 0.1.2, October 2026. Companion to [PROTOCOL.md](../PROTOCOL.md) (exact formats) and
+Release 0.2.0, November 2026. Companion to [PROTOCOL.md](../PROTOCOL.md) (exact formats) and
 [PENTEST-2026-10.md](PENTEST-2026-10.md) (what was attacked). Written for reviewers and for owners deciding whether
 CipherChat fits their threat model.
 
@@ -43,14 +43,18 @@ What stays post-quantum, and what doesn't, over the life of a conversation:
   ML-KEM-1024 + X25519, and replaced when members change, weekly and on request. Each message has its own key derived
   from the room key. A conversation that has run for a year is exactly as post-quantum as on its first day: an
   adversary recording traffic today can't recover a room key later without breaking both ML-KEM-1024 and X25519.
-* **Forward secrecy is per key period, not per message.** Room keys are wrapped to each member's long-term
-  identity encryption key (the `kem_pq` / `kem_ec` keys in their identity bundle), not to short-lived keys. So if a
-  member's identity secret is ever stolen (from a device while it's unlocked, or from their sealed backup together
-  with both their passphrase and the server's key share, §4), the thief can unwrap **every room key that member was
-  given that the server still holds**, and read the messages under them. Signal-style protocols limit this to a few
-  messages; CipherChat limits it only by:
-  * **retention**: a room with a retention period deletes old messages, and with them the room keys no remaining
-    message needs (rooms without one keep history until deleted);
+* **The exposure is set by how long wraps are kept, not by the key schedule.** Room keys are wrapped to each
+  member's long-term identity encryption key (the `kem_pq` / `kem_ec` keys in their identity bundle), not to
+  short-lived keys. So if a member's identity secret is ever stolen (from a device while it's unlocked, or from their
+  sealed backup together with both their passphrase and the server's key share, §4), the thief can unwrap **every
+  room key that member was given whose wrap the server still holds**, and read the messages under them. Changing the
+  room key weekly doesn't shrink that: each old key period stays open for as long as its wrap is stored. Today the
+  server keeps every wrap as long as the messages it protects, because the wraps are how clients read history: every
+  device rebuilds the identity from the sealed backup, the web chat keeps nothing in the browser, and both read
+  history by unwrapping the stored wraps. Signal-style protocols limit the exposure to a few messages; CipherChat
+  limits it only by:
+  * **retention**: a room with a retention period deletes old messages, and with them the room keys and wraps no
+    remaining message needs (rooms without one keep history until deleted);
   * **resetting the identity** (`/reset-identity`): a new identity makes the old secret useless for anything new,
     though not for wraps already stored.
 * **Recovery after a compromise.** A stolen room key is useless from the next key change on (members, weekly, or on
@@ -62,8 +66,44 @@ What stays post-quantum, and what doesn't, over the life of a conversation:
 
 Why it's built this way: one identity per person, rebuilt on every device from the sealed backup, means history and
 new devices simply work, and the web chat needs nothing stored in the browser. The cost is coarser forward secrecy.
-The planned change (short-lived post-quantum device prekeys, so a stolen identity no longer opens stored room keys)
-is in [PREKEYS-DESIGN.md](../PREKEYS-DESIGN.md); until it ships, this section is the honest statement of the limit.
+The change, released in 0.2.0, is in [PREKEYS-DESIGN.md](../PREKEYS-DESIGN.md), in two phases:
+
+1. **Wrap deletion.** Each device keeps the room keys it has opened in a sealed local key store and acknowledges
+   them; the server then deletes the wraps. A stolen identity secret then opens only the current key period, not the
+   archive.
+2. **Device prekeys.** Room keys are wrapped to short-lived per-device keys instead of the identity, so a stolen
+   identity secret alone opens no room key at all.
+
+Two rules hold in both phases, because breaking either one would bring the stored wraps back:
+
+* **The server never re-wraps.** A new device gets history only from another of the same person's devices, never
+  from wraps made again by the server, an admin or the owner.
+* **The local key store is never backed up** to the server or into the sealed backup, under the identity or any
+  key the identity can rebuild.
+
+**Phase 1 status (protocol 1.1, PROTOCOL.md §10): released in 0.2.0.** The server, the web chat, the
+Windows app and the Android app keep opened room keys in their own key stores, acknowledge them, and the server
+deletes acknowledged wraps (or 7-day-old ones once every paired app has joined the device list). New devices get
+history only from another of the person's devices, after the person approves it there and compares the device
+code. Interop fixtures pass across all three clients, and the full flow (acknowledge, delete, approve, sync, remove)
+is tested live against a server from Windows and Android. Each client warns in a room when the server keeps wraps
+for it more than 8 days old, and the new endpoints are pentested (PENTEST-2026-10.md, "protocol 1.1"). The server
+also stores wraps under rolling storage keys it erases after three days, so a database copy or backup older than that
+can't open its wraps (PREKEYS-DESIGN.md §4.5). Until every device has joined (that is, runs 0.2.0), the paragraphs
+above remain the honest statement of the limit, and what it doesn't cover yet (the current key period, future wraps, a
+copy taken while its storage key still existed) is in PREKEYS-DESIGN.md §4.7.
+
+**Phase 2 status (protocol 2, PROTOCOL.md §11): released in 0.2.0.** Each device that keeps a key store
+publishes a signed ML-KEM-1024 + X25519 prekey every day (each lives 7 days) and erases a prekey's secret once it
+expires, after opening and keeping every room key still wrapped to it. A new room key is then wrapped to each
+recipient device's prekey rather than to the identity, and the server hands each device only its own wrap. A stolen
+identity secret alone then opens no room key, and a stolen device secret stops opening new room keys once the
+prekeys it held have expired. Clients fall back to a protocol 1 key, and say so in the room ("compatibility mode",
+with the reason), when any recipient has no device list or no fresh prekey on a listed device, still has an older
+app or a "this session only" browser signed in, or the room has more than 64 devices; add-ons always use protocol 1.
+The fallback is visible but not blocked, so a server that withholds prekeys can force it (PENTEST-2026-10.md,
+"protocol 2", P-1). Interop fixtures pass across all three clients, the per-device flow is tested live from Windows
+and Android, and the new endpoints are pentested.
 
 ## 3. Identity and trust
 

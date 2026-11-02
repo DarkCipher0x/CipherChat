@@ -86,6 +86,16 @@ KEY_RATE = (30, 3600)                   # room keys: at most 30 per hour per use
 ROOM_RATE = (30, 86400)                 # new rooms / direct messages: 30 per day per user
 MIN_FREE = 512 * 1024 * 1024            # refuse new data when the disk is this close to full
 RETENTION_CHOICES = (0, 1, 7, 30, 90, 365)    # days; 0 = keep until deleted
+HISTORY_CHOICES = (0, 7, 30, 90, 365)          # days devices keep room keys; 0 = as long as the room keeps messages
+DIRECTORY_EXTRA = []                    # fn(c, user) -> dict merged into that user's directory entry (history.py)
+ME_EXTRA = []                           # fn(c, h) -> dict merged into the state's "me" (history.py)
+WRAP_SEAL = lambda seq, user, w: w      # how a wrap is stored, and read back (None = unreadable): shred.py seals it
+WRAP_OPEN = lambda seq, user, stored: stored                                                   # noqa: E731
+DEVICES_OF = lambda c, user: None       # that person's listed device ids, or None (history.py)          # noqa: E731
+PREKEY_OK = lambda c, user, dev, pid: False   # a current prekey of that device (history.py)           # noqa: E731
+HELD = lambda c, user: True             # an older app of theirs still needs identity wraps (history.py)  # noqa: E731
+V2_MAX_DEVICES = 64                     # per-device room keys (protocol 2) for at most this many devices
+DEV_RE = re.compile(r"[0-9a-f]{16}")
 PURGE_EVERY = 600                       # seconds between retention sweeps
 
 ROOM_ID_RE = re.compile(r"[0-9a-f]{16}")
@@ -153,6 +163,26 @@ def migrate(c):
     c.execute("""CREATE TABLE IF NOT EXISTS chat_burn_reads(
         seq INTEGER NOT NULL REFERENCES chat_items(seq) ON DELETE CASCADE, username TEXT NOT NULL,
         read_at INTEGER NOT NULL, PRIMARY KEY(seq, username))""")
+    # Wrapped room keys live in their own table, one row per recipient, so a wrap can be deleted once that person's
+    # devices hold the key (history.py) while the signed header stays.
+    c.execute("""CREATE TABLE IF NOT EXISTS chat_wraps(
+        seq INTEGER NOT NULL REFERENCES chat_items(seq) ON DELETE CASCADE, username TEXT NOT NULL,
+        w TEXT NOT NULL, PRIMARY KEY(seq, username))""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_chat_wraps_user ON chat_wraps(username)")
+    # Protocol 2: one wrap per recipient device, to that device's prekey (PROTOCOL.md §11)
+    c.execute("""CREATE TABLE IF NOT EXISTS chat_dev_wraps(
+        seq INTEGER NOT NULL REFERENCES chat_items(seq) ON DELETE CASCADE, username TEXT NOT NULL, dev TEXT NOT NULL,
+        w TEXT NOT NULL, PRIMARY KEY(seq, username, dev))""")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_chat_dev_wraps_user ON chat_dev_wraps(username)")
+    authz._add_col(c, "chat_rooms", "epoch_devices", "TEXT")       # "user|dev" lines of a v2 room key, NULL for v1
+    for r in c.execute("SELECT seq, body FROM chat_items WHERE kind='epoch' AND body LIKE '%\"w\":%'").fetchall():
+        body = json.loads(r["body"])
+        if "w" in body:                         # rows from before the table: move their wraps out of the body
+            c.executemany("INSERT OR IGNORE INTO chat_wraps(seq, username, w) VALUES(?,?,?)",
+                          [(r["seq"], u, w) for u, w in body["w"].items()])
+            c.execute("UPDATE chat_items SET body=? WHERE seq=?", (json.dumps({"h": body["h"], "s": body["s"]}, separators=(",", ":")), r["seq"]))
+    authz._add_col(c, "chat_rooms", "history_days", "INTEGER NOT NULL DEFAULT 0")   # devices keep room keys this long
+    authz._add_col(c, "chat_rooms", "history_sync", "INTEGER NOT NULL DEFAULT 1")   # new devices may get older keys
     if c.execute("SELECT 1 FROM kv WHERE k='chat_dir_rev'").fetchone() is None:
         c.execute("INSERT INTO kv(k, v) VALUES('chat_dir_rev', '1')")
 
@@ -207,14 +237,14 @@ def b64(value, size=None, max_len=None, name="value"):
     return raw
 
 
-def signed_json(value, max_len, name):
+def signed_json(value, max_len, name, versions=(1,)):
     """A signed header: base64 of canonical JSON bytes. Returns (raw bytes, parsed dict)."""
     raw = b64(value, max_len=max_len, name=name)
     try:
         obj = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
         raise Refuse(400, "Malformed %s." % name)
-    if not isinstance(obj, dict) or obj.get("v") != 1:
+    if not isinstance(obj, dict) or obj.get("v") not in versions or isinstance(obj.get("v"), bool):
         raise Refuse(400, "Unsupported %s version." % name)
     return raw, obj
 
@@ -278,7 +308,27 @@ def eligible(c, room_id):
 
 
 def needs_rotation(c, room):
-    return room["epoch"] == 0 or json.loads(room["epoch_recipients"]) != eligible(c, room["id"])
+    if room["epoch"] == 0 or json.loads(room["epoch_recipients"]) != eligible(c, room["id"]):
+        return True
+    if room["epoch_devices"] is None:
+        return False
+    # a per-device key goes stale when a recipient adds or removes a device (a removed one may be lost or stolen)
+    if json.loads(room["epoch_devices"]) != current_devices(c, room["id"]):
+        return True
+    # an older app can't open a per-device key: while a recipient has one signed in, the next sender makes a
+    # compatibility key (which clears epoch_devices, so this can't repeat)
+    return any(HELD(c, u) for u in json.loads(room["epoch_recipients"]))
+
+
+def current_devices(c, room_id):
+    """The "user|dev" lines a per-device room key would need now, or None if someone has no device list."""
+    out = []
+    for u in eligible(c, room_id):
+        devs = DEVICES_OF(c, u)
+        if devs is None:
+            return None
+        out += ["%s|%s" % (u, d) for d in sorted(devs)]
+    return out
 
 
 def room_for(c, h, room_id, admin=False):
@@ -312,10 +362,14 @@ def _max_seq(c):
     return c.execute("SELECT COALESCE(MAX(seq), 0) FROM chat_items").fetchone()[0]
 
 
-def _out(r, user):
+def _out(c, r, user, dev=None):
     body = json.loads(r["body"])
-    if r["kind"] == "epoch":                    # each member gets only their own wrapped copy of the room key
-        body = {"h": body["h"], "s": body["s"], "w": body["w"].get(user)}
+    if r["kind"] == "epoch" and body.get("v") == 2:     # per device: only the asking device's own copy
+        w = c.execute("SELECT w FROM chat_dev_wraps WHERE seq=? AND username=? AND dev=?", (r["seq"], user, dev or "")).fetchone()
+        body = {"v": 2, "h": body["h"], "s": body["s"], "w": WRAP_OPEN(r["seq"], "%s|%s" % (user, dev), w[0]) if w else None}
+    elif r["kind"] == "epoch":                  # each member gets only their own wrapped copy of the room key
+        w = c.execute("SELECT w FROM chat_wraps WHERE seq=? AND username=?", (r["seq"], user)).fetchone()
+        body = {"h": body["h"], "s": body["s"], "w": WRAP_OPEN(r["seq"], user, w[0]) if w else None}
     out = {"seq": r["seq"], "room": r["room_id"], "kind": r["kind"], "epoch": r["epoch"], "from": r["sender"],
            "at": r["created"], "body": body}
     if "burn" in r.keys() and r["burn"]:
@@ -378,14 +432,16 @@ def state(h):
                 "user": u, "display_name": acc.get("display_name") or "", "owner": is_owner(u),
                 "addon": authz.role_of(acc) == "addon",                      # a program (addons.py): shown as such
                 "identity": dict(json.loads(row["bundle"]), fp=row["fp"]) if row else None,
-                "cert": json.loads(row["cert"]) if row and row["cert"] and row["cert_fp"] == row["fp"] else None})
+                "cert": json.loads(row["cert"]) if row and row["cert"] and row["cert_fp"] == row["fp"] else None,
+                **{k: v for fn in DIRECTORY_EXTRA for k, v in fn(c, u).items()}})
         rooms = []
         for r in c.execute("""SELECT r.*, m.role FROM chat_rooms r JOIN chat_members m ON m.room_id=r.id AND m.username=?
                               ORDER BY r.kind, r.name""", (h.user,)).fetchall():
             members = [{"user": m["username"], "role": m["role"]} for m in
                        c.execute("SELECT username, role FROM chat_members WHERE room_id=? ORDER BY username", (r["id"],))]
             rooms.append({"id": r["id"], "kind": r["kind"], "name": r["name"], "topic": r["topic"],
-                          "retention_days": r["retention_days"], "epoch": r["epoch"], "epoch_at": r["epoch_at"],
+                          "retention_days": r["retention_days"], "history_days": r["history_days"],
+                          "history_sync": bool(r["history_sync"]), "epoch": r["epoch"], "epoch_at": r["epoch_at"],
                           "epoch_recipients": json.loads(r["epoch_recipients"]), "eligible": eligible(c, r["id"]),
                           "needs_rotation": needs_rotation(c, r), "my_role": r["role"], "members": members,
                           "created_by": r["created_by"]})
@@ -393,10 +449,10 @@ def state(h):
         return 200, {
             "me": {"user": h.user, "owner": is_owner(h.user), "can_create": authz.decide(c, h.user, "chat.rooms.create")[0],
                    "identity_fp": me["fp"] if me else None, "pepper_ver": me["pepper_ver"] if me else None,
-                   "certified": certified(me)},
+                   "certified": certified(me), **{k: v for fn in ME_EXTRA for k, v in fn(c, h).items()}},
             "owner": OWNER, "server_key_share": bool(ring), "directory": directory, "rooms": rooms,
             "dir_rev": _dir_rev(c), "last_seq": _max_seq(c),
-            "limits": {"members": MAX_MEMBERS, "retention": list(RETENTION_CHOICES)}}
+            "limits": {"members": MAX_MEMBERS, "retention": list(RETENTION_CHOICES), "history": list(HISTORY_CHOICES)}}
     return run(h, go, write=False)
 
 
@@ -654,6 +710,15 @@ def update_room(h, room_id, data):
             if data["retention_days"] not in RETENTION_CHOICES or isinstance(data["retention_days"], bool):
                 raise Refuse(400, "Keep messages for one of: %s days." % ", ".join(map(str, RETENTION_CHOICES)))
             changes["retention_days"] = data["retention_days"]
+        if "history_days" in data:
+            if data["history_days"] not in HISTORY_CHOICES or isinstance(data["history_days"], bool):
+                raise Refuse(400, "Keep room keys on devices for one of: %s days (0 = as long as messages)."
+                             % ", ".join(map(str, HISTORY_CHOICES)))
+            changes["history_days"] = data["history_days"]
+        if "history_sync" in data:
+            if not isinstance(data["history_sync"], bool):
+                raise Refuse(400, "history_sync is true or false.")
+            changes["history_sync"] = int(data["history_sync"])
         if not changes:
             raise Refuse(400, "Nothing to change.")
         c.execute("UPDATE chat_rooms SET %s WHERE id=?" % ", ".join("%s=?" % k for k in changes), (*changes.values(), room["id"]))
@@ -764,7 +829,7 @@ def post_epoch(h, room_id, data):
         pkg = data.get("pkg")
         if not isinstance(pkg, dict) or not isinstance(pkg.get("w"), dict):
             raise Refuse(400, "Malformed room key.")
-        _, hdr = signed_json(pkg.get("h"), EPOCH_HEADER_MAX, "room key header")
+        _, hdr = signed_json(pkg.get("h"), EPOCH_HEADER_MAX, "room key header", versions=(1, 2))
         b64(pkg.get("s"), size=SIG_LEN, name="room key signature")
         epoch = room["epoch"] + 1
         if hdr.get("t") != "epoch" or hdr.get("room") != room["id"] or hdr.get("by") != h.user or hdr.get("by_fp") != me["fp"]:
@@ -773,6 +838,10 @@ def post_epoch(h, room_id, data):
             raise Refuse(409, "Someone else changed the room key first. Reload and try again.", stale=True)
         want = eligible(c, room["id"])
         rec = hdr.get("recipients")
+        if hdr.get("v") == 2:
+            return _post_epoch_v2(c, h, room, pkg, hdr, epoch, want)
+        if hdr.get("v") != 1:
+            raise Refuse(400, "Unknown room key version.")
         if not isinstance(rec, list) or [r.get("u") if isinstance(r, dict) else None for r in rec] != want:
             raise Refuse(409, "The member list changed. Reload and try again.", stale=True)
         if set(pkg["w"]) != set(want):
@@ -784,14 +853,57 @@ def post_epoch(h, room_id, data):
             wrap = b64(pkg["w"][r["u"]], size=WRAP_LEN, name="wrapped key")
             if hashlib.sha3_256(wrap).hexdigest() != r["w"]:
                 raise Refuse(400, "A wrapped key doesn't match its header line.")
-        body = {"h": pkg["h"], "s": pkg["s"], "w": {u: pkg["w"][u] for u in want}}
-        _item(c, room["id"], "epoch", h.user, body, epoch=epoch)
-        c.execute("UPDATE chat_rooms SET epoch=?, epoch_recipients=?, epoch_at=? WHERE id=?",
+        seq = _item(c, room["id"], "epoch", h.user, {"h": pkg["h"], "s": pkg["s"]}, epoch=epoch)
+        c.executemany("INSERT INTO chat_wraps(seq, username, w) VALUES(?,?,?)", [(seq, u, WRAP_SEAL(seq, u, pkg["w"][u])) for u in want])
+        c.execute("UPDATE chat_rooms SET epoch=?, epoch_recipients=?, epoch_at=?, epoch_devices=NULL WHERE id=?",
                   (epoch, json.dumps(want), int(time.time()), room["id"]))
         audit(c, h.user, "chat.rotate", "chat_room", room["id"], detail={"epoch": epoch, "recipients": len(want)}, ctx=h.ctx())
         _bump_dir(c)
         return 200, {"ok": True, "epoch": epoch}
     return run(h, go)
+
+
+def _post_epoch_v2(c, h, room, pkg, hdr, epoch, want):
+    """A per-device room key (PROTOCOL.md §11): one line and one wrap for every listed device of every recipient, each
+    to a prekey the server holds for that device. Anyone with an older app signed in still needs a v1 key."""
+    rec = hdr.get("recipients")
+    if not isinstance(rec, list) or not all(isinstance(r, dict) and set(r) == {"u", "fp", "dev", "prekey", "w"} for r in rec):
+        raise Refuse(400, "Malformed room key recipients.")
+    lines = [(r["u"], r["dev"]) for r in rec]
+    if any(not isinstance(u, str) or not isinstance(d, str) for u, d in lines) or lines != sorted(set(lines)):
+        raise Refuse(400, "Room key recipients are listed once each, sorted by person and device.")
+    held = [u for u in want if HELD(c, u)]
+    if held:
+        raise Refuse(409, "%s still has an older app signed in, so this room needs a compatibility room key." % held[0],
+                     stale=True, v1=True)
+    need_lines = current_devices(c, room["id"])
+    if need_lines is None:
+        raise Refuse(409, "Someone in this room has no device list yet, so this room needs a compatibility room key.",
+                     stale=True, v1=True)
+    if ["%s|%s" % x for x in lines] != need_lines:
+        raise Refuse(409, "The member or device list changed. Reload and try again.", stale=True)
+    if len(lines) > V2_MAX_DEVICES:
+        raise Refuse(400, "Per-device room keys are for at most %d devices." % V2_MAX_DEVICES, v1=True)
+    if set(pkg["w"]) != {"%s|%s" % x for x in lines}:
+        raise Refuse(400, "The room key must be wrapped once for each recipient device.")
+    for r in rec:
+        row = identity(c, r["u"])
+        if r.get("fp") != row["fp"] or not isinstance(r.get("w"), str) or not FP_RE.fullmatch(r["w"]):
+            raise Refuse(409, "%s's identity changed. Reload and try again." % r["u"], stale=True)
+        if not isinstance(r["prekey"], str) or not DEV_RE.fullmatch(r["prekey"]) or not PREKEY_OK(c, r["u"], r["dev"], r["prekey"]):
+            raise Refuse(409, "A device's prekey changed. Reload and try again.", stale=True)
+        wrap = b64(pkg["w"]["%s|%s" % (r["u"], r["dev"])], size=WRAP_LEN, name="wrapped key")
+        if hashlib.sha3_256(wrap).hexdigest() != r["w"]:
+            raise Refuse(400, "A wrapped key doesn't match its header line.")
+    seq = _item(c, room["id"], "epoch", h.user, {"v": 2, "h": pkg["h"], "s": pkg["s"]}, epoch=epoch)
+    c.executemany("INSERT INTO chat_dev_wraps(seq, username, dev, w) VALUES(?,?,?,?)",
+                  [(seq, u, d, WRAP_SEAL(seq, "%s|%s" % (u, d), pkg["w"]["%s|%s" % (u, d)])) for u, d in lines])
+    c.execute("UPDATE chat_rooms SET epoch=?, epoch_recipients=?, epoch_at=?, epoch_devices=? WHERE id=?",
+              (epoch, json.dumps(want), int(time.time()), json.dumps(need_lines), room["id"]))
+    audit(c, h.user, "chat.rotate", "chat_room", room["id"], detail={"epoch": epoch, "recipients": len(want), "devices": len(lines),
+                                                                     "v": 2}, ctx=h.ctx())
+    _bump_dir(c)
+    return 200, {"ok": True, "epoch": epoch, "v": 2}
 
 
 def send(h, room_id, data):
@@ -1017,17 +1129,25 @@ def history(h, room_id, q):
         rows = c.execute("""SELECT * FROM chat_items i WHERE room_id=? AND seq<? AND seq>? AND kind<>'gone'
                             AND NOT EXISTS (SELECT 1 FROM chat_burn_reads b WHERE b.seq=i.seq AND b.username=?)
                             ORDER BY seq DESC LIMIT ?""", (room["id"], before, mem["since_seq"], h.user, PAGE)).fetchall()
-        return 200, {"items": [_out(r, h.user) for r in reversed(rows)], "more": len(rows) == PAGE}
+        return 200, {"items": [_out(c, r, h.user, _q_dev(q)) for r in reversed(rows)], "more": len(rows) == PAGE}
     return run(h, go, write=False)
 
 
-def epochs(h, room_id):
-    """Every room key in this room that was wrapped for you (to read older messages)."""
+def _q_dev(q):
+    """The asking device (?dev=), for its own per-device wraps; anything else reads as none."""
+    d = (q or {}).get("dev")
+    return d if isinstance(d, str) and DEV_RE.fullmatch(d) else None
+
+
+def epochs(h, room_id, q=None):
+    """Every room key in this room that was wrapped for you (to read older messages). With all=1, every signed header,
+    with w null where your wrap is gone (your devices keep the key) or never existed."""
     def go(c):
         need(c, h, "chat.access.use")
         room, mem = room_for(c, h, room_id)
         rows = c.execute("SELECT * FROM chat_items WHERE room_id=? AND kind='epoch' ORDER BY seq", (room["id"],)).fetchall()
-        return 200, {"items": [x for x in (_out(r, h.user) for r in rows) if x["body"]["w"]]}
+        items = [_out(c, r, h.user, _q_dev(q)) for r in rows]
+        return 200, {"items": items if (q or {}).get("all") == "1" else [x for x in items if x["body"]["w"]]}
     return run(h, go, write=False)
 
 
@@ -1051,7 +1171,7 @@ def poll(h, q):
             cur = _dir_rev(c)
             extras = {k: v for k, v in (fn(h.user, q) for fn in EXTRA_POLL) if v}
             if rows or cur != rev or extras:
-                return 200, dict(extras, items=[_out(r, h.user) for r in rows], dir_rev=cur,
+                return 200, dict(extras, items=[_out(c, r, h.user, _q_dev(q)) for r in rows], dir_rev=cur,
                                  last_seq=rows[-1]["seq"] if rows else max(since, _max_seq(c)))
         left = deadline - time.monotonic()
         if left <= 0:
@@ -1206,6 +1326,8 @@ def purge_loop():
             n = purge_once()
             if n:
                 sys.stderr.write("chat retention: removed %d item(s)\n" % n)
+                with core.db() as c:            # and out of the write-ahead log too, not only the database pages
+                    c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         except Exception as e:                  # never let the sweep kill the service; it retries next round
             sys.stderr.write("chat retention sweep failed: %s\n" % type(e).__name__)
 
@@ -1234,7 +1356,7 @@ def route(h, method, path, query):
         if m and m.group(2) == "items":
             return history(h, m.group(1), q)
         if m and m.group(2) == "epochs":
-            return epochs(h, m.group(1))
+            return epochs(h, m.group(1), q)
         mb = re.fullmatch(r"blob/([0-9a-f]{16})/([0-9a-f]{24})", p)
         if mb:
             return send_blob(h, mb.group(1), mb.group(2))

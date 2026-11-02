@@ -119,7 +119,12 @@ public static class Canon
     }
 
     /// <summary>A signed header: base64 of canonical JSON, version 1. Refuses anything that isn't exactly canonical.</summary>
-    public static Signed ParseSigned(string b64, int maxLen)
+    private static readonly long[] V1 = [1];
+
+    public static Signed ParseSigned(string b64, int maxLen) => ParseSigned(b64, maxLen, V1);
+
+    /// <summary>A signed canonical header whose "v" is one of <paramref name="versions"/>.</summary>
+    public static Signed ParseSigned(string b64, int maxLen, IReadOnlyCollection<long> versions)
     {
         var raw = Crypto.Bytes.Unb64(b64);
         if (raw.Length > maxLen) throw new CryptoFail("too large");
@@ -127,7 +132,7 @@ public static class Canon
         try { text = StrictUtf8.GetString(raw); } catch (DecoderFallbackException) { throw new CryptoFail("malformed header"); }
         JsonNode? node;
         try { node = Parse(text); } catch (CryptoFail) { throw new CryptoFail("malformed header"); }
-        if (node is not JsonObject obj || obj.LongOrNull("v") != 1) throw new CryptoFail("unsupported version");
+        if (node is not JsonObject obj || obj.LongOrNull("v") is not { } v || !versions.Contains(v)) throw new CryptoFail("unsupported version");
         if (Encode(obj) != text) throw new CryptoFail("header is not canonical");
         return new Signed(raw, obj);
     }

@@ -132,7 +132,7 @@ fun ConnectScreen(saved: List<SavedPairing>, devBuild: Boolean, actions: Connect
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(origin, { origin = it.trim() }, Modifier.fillMaxWidth(), label = { Text("Server") }, singleLine = true,
                         textStyle = DcxMono, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
-                    if (devBuild) Text("Development build: plain http:// to a server on this phone (http://localhost:PORT through adb reverse) is allowed.", style = MaterialTheme.typography.bodySmall, color = DcxPalette.Warn)
+                    if (devBuild) Text("Development build: plain http:// to a server on this phone (through adb reverse) is allowed. Type the address the server was started with, e.g. http://127.0.0.1:PORT.", style = MaterialTheme.typography.bodySmall, color = DcxPalette.Warn)
                     OutlinedButton(shape = DcxButtonShape, onClick = { run("Waiting for your passkey…") { actions.passkey(origin) } }, enabled = origin.length > 8, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Filled.Key, null); Text("  Sign in with a passkey")
                     }

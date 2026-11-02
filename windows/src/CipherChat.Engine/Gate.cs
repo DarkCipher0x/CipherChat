@@ -8,11 +8,18 @@ namespace CipherChat.Engine;
 /// <summary>This device's unlocked identity: keys live in memory only, until <see cref="ChatEngine.Lock"/>.</summary>
 public sealed class Me
 {
-    internal Me(Identity id, string fp, string? anchorFp) { Id = id; Fp = fp; AnchorFp = anchorFp; }
+    internal Me(Identity id, string fp, string? anchorFp, byte[]? storeKey = null) { Id = id; Fp = fp; AnchorFp = anchorFp; StoreKey = storeKey; }
     internal Identity Id { get; }
     public string User => Id.User;
     public string Fp { get; }
     public string? AnchorFp { get; internal set; }
+    /// <summary>Derived from the master at unlock, for this PC's key store (<see cref="KeyStore"/>); wiped on lock.</summary>
+    internal byte[]? StoreKey { get; private set; }
+
+    /// <summary>Opens (or makes) this PC's key store for this server; null for an identity without a master here (add-ons).</summary>
+    public KeyStore? OpenStore(string path, IStoreGuard guard) => StoreKey is null ? null : KeyStore.Open(path, guard, User, StoreKey);
+
+    internal void ForgetStoreKey() { if (StoreKey is not null) Wipe(StoreKey); StoreKey = null; }
 }
 
 /// <summary>
@@ -58,7 +65,7 @@ public static class Gate
             {
                 ["bundle"] = new JsonObject { ["b"] = pub.B, ["s"] = pub.S }, ["backup"] = backup, ["confirm_reset"] = reset,
             }, ask).ConfigureAwait(false);
-            return new Me(id, pub.Fp, anchor);
+            return new Me(id, pub.Fp, anchor, Devices.StoreKey(master, user));
         }
         finally { Wipe(master); }
     }
@@ -81,7 +88,7 @@ public static class Gate
             var at = Canon.ParseSigned(bundle.Str("b"), 16384).Obj.Long("at");
             if (Hybrid.PublishIdentity(id, at).Fp != b.Str("fp"))
                 throw new CryptoFail("The identity the server shows for you doesn't match your keys. Don't use the chat; tell the owner.");
-            return new Me(id, b.Str("fp"), payload.StrOrNull("anchor_fp"));
+            return new Me(id, b.Str("fp"), payload.StrOrNull("anchor_fp"), Devices.StoreKey(master, user));
         }
         finally { Wipe(master); }
     }

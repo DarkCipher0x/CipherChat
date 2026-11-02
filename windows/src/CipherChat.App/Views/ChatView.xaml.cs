@@ -49,6 +49,8 @@ public partial class ChatView : UserControl
         _e.EntryChanged += (r, en) => Ui(() => Changed(r, en));
         _e.EntryRemoved += (r, en) => Ui(() => Removed(r, en));
         _e.Notice += (r, k, t) => Ui(() => LocalLine(k, t));
+        _e.RoomReset += r => Ui(() => { if (r == _cur) _w.Run(() => OpenRoom(r)); });
+        _e.ConfirmSync = (name, added, code) => Dispatcher.InvokeAsync(() => SettingsDialog.ConfirmSync(_w, name, added, code)).Task;
         _e.Calls.Ringing += inc => Ui(() => RingPopup.Show(_w, inc));
         _e.Calls.RingStopped += (call, why) => Ui(() =>
         {
@@ -797,6 +799,8 @@ public partial class ChatView : UserControl
         foreach (var (user, role) in r.Members)
             d.Text(user + (role == "admin" ? " (admin)" : "") + "  ·  " + (r.EpochRecipients.Contains(user) ? "holds the key" : "no key") + "  ·  " +
                    (_e.People.GetValueOrDefault(user)?.Trust.ToString().ToLowerInvariant() ?? "?"));
+        // any member may renew the key (as /rotate on the web and "Renew the key now" on Android)
+        d.Text(r.Epoch > 0 ? "Room key #" + r.Epoch + ", held by " + string.Join(", ", r.EpochRecipients) + "." : "No room key yet.", "Caption");
         List<CheckBox>? add = null, remove = null;
         if (admin)
         {
@@ -805,11 +809,18 @@ public partial class ChatView : UserControl
             d.Text("REMOVE", "Label");
             remove = PickList(d, r.Members.Select(m => m.User).Where(u => u != _e.MyUser));
             d.Text("Any change gives the room a new key: removed members can't read anything sent afterwards.", "Caption");
+            d.Button("New key now", () => "rotate");
             d.Cancel("Close");
             d.Button("Apply", () => true, "PrimaryButton");
         }
-        else d.Button("Close", () => null, "PrimaryButton", isDefault: true);
-        if (d.Show() is not true || add is null || remove is null) return;
+        else
+        {
+            d.Button("New key now", () => "rotate");
+            d.Button("Close", () => null, "PrimaryButton", isDefault: true);
+        }
+        var res = d.Show();
+        if (res is "rotate") { _w.Run(() => _e.RotateNowAsync(r)); return; }
+        if (res is not true || add is null || remove is null) return;
         var a = add.Where(b => b.IsChecked == true).Select(b => (string)b.Tag).ToList();
         var rm = remove.Where(b => b.IsChecked == true).Select(b => (string)b.Tag).ToList();
         if (a.Count + rm.Count > 0) _w.Run(() => _e.ChangeMembersAsync(r, a, rm));
@@ -824,13 +835,21 @@ public partial class ChatView : UserControl
         d.Text("KEEP MESSAGES", "Label");
         var choices = _e.RetentionChoices.ToList();
         var keep = d.Add(new ComboBox { ItemsSource = choices.Select(x => x == 0 ? "until deleted" : x + " days").ToList(), SelectedIndex = Math.Max(0, choices.IndexOf(r.RetentionDays)), Margin = new Thickness(0, 0, 0, 10) });
+        d.Text("DEVICES KEEP ROOM KEYS", "Label");
+        var hist = _e.HistoryChoices.ToList();
+        var window = d.Add(new ComboBox { ItemsSource = hist.Select(x => x == 0 ? "as long as messages are kept" : "for " + x + " days").ToList(), SelectedIndex = Math.Max(0, hist.IndexOf(r.HistoryDays)), Margin = new Thickness(0, 0, 0, 4) });
+        d.Text("Older keys are erased from members' devices, so a device taken later can't read further back than this.", "Caption");
+        var sync = d.Add(new CheckBox { Content = "Members' new devices can get older keys from their other devices", IsChecked = r.HistorySync, Margin = new Thickness(0, 6, 0, 10) });
+        sync.SetResourceReference(StyleProperty, "Switch");
         d.Button("Delete room", () => "delete", "DangerButton");
         d.Button("New key now", () => "rotate");
         d.Cancel();
         d.Button("Save", () => "save", "PrimaryButton", isDefault: true);
         switch (d.Show(name))
         {
-            case "save": _w.Run(() => _e.UpdateRoomAsync(r, name.Text.Trim(), topic.Text, choices[Math.Max(0, keep.SelectedIndex)])); break;
+            case "save":
+                _w.Run(() => _e.UpdateRoomAsync(r, name.Text.Trim(), topic.Text, choices[Math.Max(0, keep.SelectedIndex)], hist[Math.Max(0, window.SelectedIndex)], sync.IsChecked == true));
+                break;
             case "rotate": _w.Run(() => _e.RotateNowAsync(r)); break;
             case "delete":
                 if (Dialogs.Confirm(_w, "Delete " + r.Label(_e.MyUser), "Delete the room and every message in it for everyone? This can't be undone.", "Delete", true))

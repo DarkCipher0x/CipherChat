@@ -59,6 +59,84 @@ object Room {
         return Opened(key, o, sig.raw)
     }
 
+    /**
+     * The same checks for a room key this device already holds (its wrap may be gone from the server): the header must
+     * be signed by the trusted maker and commit to exactly this key. Either header version.
+     */
+    fun checkEpoch(room: String, itemEpoch: Long, itemFrom: String, h: String, s: String, signer: PublicIdentity, key: ByteArray): Opened {
+        val sig = Canon.parseSigned(h, 65536, Canon.V1V2)
+        val o = sig.obj
+        if (o.str("t") != "epoch" || o.str("room") != room || o.long("epoch") != itemEpoch || o.str("by") != itemFrom ||
+            o.str("by") != signer.user || o.str("by_fp") != signer.fp) throw CryptoFail("room key header doesn't match")
+        val label = if (o.long("v") == 2L) "dcx-chat/v2/epoch" else "dcx-chat/v1/epoch"
+        if (!verify(signer, label, sig.raw, unb64(s))) throw CryptoFail("room key signature is invalid")
+        if (key.size != 32 || commitOf(room, itemEpoch, key) != o.str("commit")) throw CryptoFail("room key commitment mismatch")
+        return Opened(key, o, sig.raw)
+    }
+
+    /**
+     * The hash of a room key's header this device can't open (sealed to other devices, or made before it joined), once
+     * its signature checks out: the next key made here still names it as "prev", so the key history stays one chain.
+     */
+    fun headerHashOf(room: String, itemEpoch: Long, itemFrom: String, h: String, s: String, signer: PublicIdentity): String {
+        val sig = Canon.parseSigned(h, 65536, Canon.V1V2)
+        val o = sig.obj
+        if (o.str("t") != "epoch" || o.str("room") != room || o.long("epoch") != itemEpoch || o.str("by") != itemFrom ||
+            o.str("by") != signer.user || o.str("by_fp") != signer.fp) throw CryptoFail("room key header doesn't match")
+        val label = if (o.long("v") == 2L) "dcx-chat/v2/epoch" else "dcx-chat/v1/epoch"
+        if (!verify(signer, label, sig.raw, unb64(s))) throw CryptoFail("room key signature is invalid")
+        return headerHash(sig.raw)
+    }
+
+    // ------------------------------------------------------------------------------------------- per-device room keys (PROTOCOL.md §11)
+    private fun wrapAadV2(room: String, epoch: Long, u: String, fp: String, dev: String, pid: String) =
+        utf8("dcx-chat/v2/wrap|$room|$epoch|$u|$fp|$dev|$pid")
+
+    /** One listed device of a recipient and the prekey it published. */
+    class DeviceLine(val u: String, val fp: String, val dev: String, val prekey: Prekey)
+
+    /** One line per listed device of every recipient (any order); the package's w is keyed "user|dev". */
+    fun buildEpochV2(me: Identity, myFp: String, room: String, epoch: Long, lines: List<DeviceLine>, prev: String): Built {
+        val key = random(32)
+        val w = LinkedHashMap<String, String>()
+        val rec = buildJsonArray {
+            for (l in lines.sortedWith(compareBy<DeviceLine> { it.u }.thenBy { it.dev })) {
+                val wrapped = wrapKey(key, l.prekey.kemPq, l.prekey.kemEc, wrapAadV2(room, epoch, l.u, l.fp, l.dev, l.prekey.id))
+                w[l.u + "|" + l.dev] = b64(wrapped)
+                add(buildJsonObject { put("u", l.u); put("fp", l.fp); put("dev", l.dev); put("prekey", l.prekey.id); put("w", hex(sha3_256(wrapped))) })
+            }
+        }
+        val raw = Canon.bytes(buildJsonObject {
+            put("v", 2); put("t", "epoch"); put("room", room); put("epoch", epoch); put("by", me.user); put("by_fp", myFp)
+            put("at", System.currentTimeMillis()); put("prev", prev); put("recipients", rec); put("commit", commitOf(room, epoch, key))
+        })
+        return Built(EpochPkg(b64(raw), b64(sign(me, "dcx-chat/v2/epoch", raw)), w), key)
+    }
+
+    /**
+     * A v2 epoch item with this device's wrap. [prekeyOf] gives this device's prekey secret by id, or null once it's
+     * erased (then nothing opens: that's the point).
+     */
+    fun openEpochV2(me: Identity, myFp: String, myDev: String, room: String, itemEpoch: Long, itemFrom: String,
+                    h: String, s: String, myWrap: String?, signer: PublicIdentity, prekeyOf: (String) -> Device?): Opened {
+        val sig = Canon.parseSigned(h, 65536, Canon.V2)
+        val o = sig.obj
+        if (o.str("t") != "epoch" || o.str("room") != room || o.long("epoch") != itemEpoch || o.str("by") != itemFrom ||
+            o.str("by") != signer.user || o.str("by_fp") != signer.fp) throw CryptoFail("room key header doesn't match")
+        if (!verify(signer, "dcx-chat/v2/epoch", sig.raw, unb64(s))) throw CryptoFail("room key signature is invalid")
+        val line = o.arr("recipients").map { it as? JsonObject ?: throw CryptoFail("malformed recipients") }
+            .firstOrNull { it.strOrNull("u") == me.user && it.strOrNull("dev") == myDev }
+        if (line == null || line.str("fp") != myFp || myWrap == null)
+            throw CryptoFail("this room key wasn't made for this device and your current identity")
+        val pid = line.str("prekey")
+        val pre = prekeyOf(pid) ?: throw CryptoFail("this device no longer has the prekey this room key was sealed to")
+        val wrapped = unb64(myWrap, Sizes.WRAP)
+        if (hex(sha3_256(wrapped)) != line.str("w")) throw CryptoFail("wrapped key doesn't match the signed header")
+        val key = unwrapKey(wrapped, pre.kemPq, pre.kemPqPk, pre.kemEc, pre.kemEcPk, wrapAadV2(room, itemEpoch, me.user, myFp, myDev, pid))
+        if (commitOf(room, itemEpoch, key) != o.str("commit")) throw CryptoFail("room key commitment mismatch")
+        return Opened(key, o, sig.raw)
+    }
+
     // ------------------------------------------------------------------------------------------- messages
     private fun pad(data: ByteArray): ByteArray {
         val size = PAD_BUCKETS.firstOrNull { it >= data.size + 4 } ?: throw CryptoFail("message too long")

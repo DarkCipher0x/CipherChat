@@ -22,6 +22,7 @@ ENV = ETC + "/cipherchat.env"
 KEY = ETC + "/server.key"
 SAVED_PLAN = ETC + "/setup.json"
 STATE = "/var/lib/cipherchat"
+SHRED = "/var/lib/cipherchat-shred"                  # rolling storage keys (shred.py): never backed up
 UNIT = "/etc/systemd/system/cipherchat.service"
 MAILER_UNIT = "/etc/systemd/system/cipherchat-mailer.service"
 BACKUP_UNIT = "/etc/systemd/system/cipherchat-backup.service"
@@ -389,6 +390,7 @@ class Installer:
                {"CIPHERCHAT_TURN_URLS": "", "CIPHERCHAT_TURN_SECRET_FILE": ""}
         values = {**turn, "CIPHERCHAT_ORIGIN": p.origin, "CIPHERCHAT_NAME": '"%s"' % p.name.replace('"', "'"), "CIPHERCHAT_OWNER": p.owner,
                   "CIPHERCHAT_LISTEN": "127.0.0.1:%d" % p.port, "CIPHERCHAT_STATE_DIR": STATE, "CIPHERCHAT_KEY_FILE": KEY,
+                  "CIPHERCHAT_SHRED_DIR": SHRED,
                   "CIPHERCHAT_WEB_DIR": OPT + "/web", "CIPHERCHAT_TRUST_PROXY": "1", "CIPHERCHAT_ANDROID_APPS": p.android_apps,
                   "CIPHERCHAT_MAILER": "separate"}
         write(ENV, env_with(existing, values), 0o640, ("root", USER))
@@ -695,7 +697,7 @@ def uninstall(purge, rep):
                     saved = json.load(f)
             except (OSError, ValueError):
                 pass
-            for d in (STATE, ETC, saved.get("backup_dir") or "/var/backups/cipherchat", SNAPSHOTS):
+            for d in (STATE, SHRED, ETC, saved.get("backup_dir") or "/var/backups/cipherchat", SNAPSHOTS):
                 shutil.rmtree(d, ignore_errors=True)
             run(["userdel", USER], check=False)
             return "deleted the database, attachments, settings, server key and backups"

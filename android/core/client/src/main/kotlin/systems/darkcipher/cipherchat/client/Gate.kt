@@ -11,6 +11,7 @@ import kotlinx.serialization.json.put
 import systems.darkcipher.cipherchat.crypto.Backup
 import systems.darkcipher.cipherchat.crypto.Canon
 import systems.darkcipher.cipherchat.crypto.CryptoFail
+import systems.darkcipher.cipherchat.crypto.Devices
 import systems.darkcipher.cipherchat.crypto.Identity
 import systems.darkcipher.cipherchat.crypto.b64
 import systems.darkcipher.cipherchat.crypto.identityFromMaster
@@ -25,10 +26,18 @@ import systems.darkcipher.cipherchat.crypto.unb64
 import systems.darkcipher.cipherchat.crypto.wipe
 
 /** This device's unlocked identity: keys live in memory only, until [ChatEngine.lock]. */
-class Me internal constructor(internal val id: Identity, val fp: String, anchorFp: String?) {
+class Me internal constructor(internal val id: Identity, val fp: String, anchorFp: String?, storeKey: ByteArray? = null) {
     val user: String get() = id.user
     @Volatile var anchorFp: String? = anchorFp
         internal set
+    /** Derived from the master at unlock, for this phone's key store ([KeyStore]); wiped on lock. */
+    @Volatile internal var storeKey: ByteArray? = storeKey
+        private set
+
+    /** Opens (or makes) this phone's key store for this server; null without a master here. */
+    fun openStore(file: java.io.File, guard: StoreGuard, name: String): KeyStore? = storeKey?.let { KeyStore.open(file, guard, user, it, name) }
+
+    internal fun forgetStoreKey() { storeKey?.let { wipe(it) }; storeKey = null }
 }
 
 /** A wrong chat passphrase. */
@@ -85,7 +94,7 @@ object Gate {
             api.call("identity", buildJsonObject {
                 put("bundle", buildJsonObject { put("b", pub.b); put("s", pub.s) }); put("backup", backup); put("confirm_reset", reset)
             }, ask)
-            return Me(id, pub.fp, anchor)
+            return Me(id, pub.fp, anchor, Devices.storeKey(master, user))
         } finally { wipe(master) }
     }
 
@@ -101,7 +110,7 @@ object Gate {
             val at = Canon.parseSigned(b.obj("bundle").str("b"), 16384).obj.long("at")
             if (publishIdentity(id, at).fp != b.str("fp"))
                 throw CryptoFail("The identity the server shows for you doesn't match your keys. Don't use the chat; tell the owner.")
-            return Me(id, b.str("fp"), payload.strOrNull("anchor_fp"))
+            return Me(id, b.str("fp"), payload.strOrNull("anchor_fp"), Devices.storeKey(master, user))
         } finally { wipe(master) }
     }
 

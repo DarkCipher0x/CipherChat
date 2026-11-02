@@ -96,6 +96,10 @@ class Room internal constructor(val id: String, info: JsonObject) {
     val members: List<Pair<String, String>> get() =
         (info["members"] as? JsonArray)?.mapNotNull { m -> (m as? JsonObject)?.let { it.str("user") to (it.strOrNull("role") ?: "member") } } ?: emptyList()
     val retentionDays get() = info.longOrNull("retention_days") ?: 0
+    /** How long devices keep this room's keys (0 = as long as messages are kept). */
+    val historyDays get() = info.longOrNull("history_days") ?: 0
+    /** Whether a new device of a member may get this room's older keys from their other devices. */
+    val historySync get() = (info["history_sync"] as? JsonPrimitive)?.content != "false"
 
     @Volatile var unread = 0
         internal set
@@ -114,6 +118,8 @@ class Room internal constructor(val id: String, info: JsonObject) {
     internal val seqs = HashSet<Long>()
     internal val msgIds = HashSet<String>()
     internal val epochTried = HashSet<Long>()
+    internal val expired: MutableSet<Long> = ConcurrentHashMap.newKeySet()      // keys past the history window, erased here
+    @Volatile internal var leftoverWarned = false                               // warned once that the server kept old wraps
     internal val msgs = ConcurrentHashMap<String, ChatMessage>()
     internal class PendingOp(val kind: String, val from: String, val seq: Long, val payload: JsonObject)
     internal val pending = HashMap<String, MutableList<PendingOp>>()

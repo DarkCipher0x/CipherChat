@@ -2,6 +2,8 @@ package systems.darkcipher.cipherchat.chat
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -39,6 +41,7 @@ import systems.darkcipher.cipherchat.designsystem.StatusPill
 private fun days(d: Long) = if (d == 0L) "forever" else "$d days"
 
 /** A room's members, key and settings. Admins change members (the room key is renewed for them) and settings. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RoomInfoScreen(model: ChatModel, room: Room, back: () -> Unit, left: () -> Unit) {
     val e = model.engine
@@ -47,6 +50,8 @@ fun RoomInfoScreen(model: ChatModel, room: Room, back: () -> Unit, left: () -> U
     var name by remember(room.id) { mutableStateOf(room.name) }
     var topic by remember(room.id) { mutableStateOf(room.topic) }
     var keep by remember(room.id) { mutableStateOf(room.retentionDays) }
+    var histDays by remember(room.id) { mutableStateOf(room.historyDays) }
+    var histSync by remember(room.id) { mutableStateOf(room.historySync) }
     var adding by remember { mutableStateOf(false) }
     DcxScaffold(title = room.label(e.myUser), onBack = back) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -78,7 +83,16 @@ fun RoomInfoScreen(model: ChatModel, room: Room, back: () -> Unit, left: () -> U
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     e.retentionChoices.forEach { d -> FilterChip(keep == d, { keep = d }, { Text(days(d)) }) }
                 }
-                OutlinedButton(shape = DcxButtonShape, onClick = { model.run("Saving…") { e.updateRoom(room, name, topic, keep) } }) { Text("Save") }
+                // How far back members' devices keep (and may send each other) this room's keys
+                Text("Devices keep older keys for")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    e.historyChoices.forEach { d -> FilterChip(histDays == d, { histDays = d }, { Text(if (d == 0L) "as long as messages" else "$d days") }) }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(histSync, { histSync = it })
+                    Text("Members' new devices may get older messages from their other devices", Modifier.weight(1f))
+                }
+                OutlinedButton(shape = DcxButtonShape, onClick = { model.run("Saving…") { e.updateRoom(room, name, topic, keep, histDays, histSync) } }) { Text("Save") }
             }
             DcxSectionHeader("Leave")
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

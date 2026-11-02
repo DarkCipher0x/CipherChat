@@ -217,14 +217,17 @@ fun wrapKey(key32: ByteArray, rcptKemPq: ByteArray, rcptKemEc: ByteArray, aad: B
     try { return concat(ct, ephPub, aesSeal(wk, key32, aad)) } finally { wipe(wk) }
 }
 
-fun unwrapKey(wrapped: ByteArray, id: Identity, aad: ByteArray): ByteArray {
+fun unwrapKey(wrapped: ByteArray, id: Identity, aad: ByteArray): ByteArray = unwrapKey(wrapped, id.kemPq, id.kemPqPk, id.kemEc, id.kemEcPk, aad)
+
+internal fun unwrapKey(wrapped: ByteArray, kemPq: MLKEMPrivateKeyParameters, kemPqPk: ByteArray,
+                       kemEc: X25519PrivateKeyParameters, kemEcPk: ByteArray, aad: ByteArray): ByteArray {
     if (wrapped.size != Sizes.WRAP) throw CryptoFail("wrapped key has the wrong length")
     val ct = wrapped.copyOfRange(0, 1568)
     val ephPub = wrapped.copyOfRange(1568, 1600)
     val sealed = wrapped.copyOfRange(1600, wrapped.size)
-    val ssPq = MLKEMExtractor(id.kemPq).extractSecret(ct)       // implicit rejection: a wrong ct gives a random secret
-    val ssEc = x25519(id.kemEc, ephPub)
-    val wk = wrapKdf(ssPq, ssEc, ct, ephPub, id.kemPqPk, id.kemEcPk)
+    val ssPq = MLKEMExtractor(kemPq).extractSecret(ct)          // implicit rejection: a wrong ct gives a random secret
+    val ssEc = x25519(kemEc, ephPub)
+    val wk = wrapKdf(ssPq, ssEc, ct, ephPub, kemPqPk, kemEcPk)
     wipe(ssPq, ssEc)
     try {
         val key = aesOpen(wk, sealed, aad)

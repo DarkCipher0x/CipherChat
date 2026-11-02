@@ -19,6 +19,9 @@
     <None Include="..\..\..\android\core\crypto\src\test\resources\interop\browser-made.json" Link="interop\browser-made.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\..\android\core\crypto\src\test\resources\interop\phone-made.json" Link="interop\phone-made.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\..\android\core\crypto\src\test\resources\interop\browser-files.json" Link="interop\browser-files.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\android\core\crypto\src\test\resources\interop\browser-history.json" Link="interop\browser-history.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\android\core\crypto\src\test\resources\interop\phone-history.json" Link="interop\phone-history.json" CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('..\..\..\android\core\crypto\src\test\resources\interop\phone-history.json')" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

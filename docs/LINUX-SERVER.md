@@ -15,8 +15,8 @@ CipherChat by DarkCipher Systems. Your own post-quantum end-to-end encrypted cha
 ## Install
 
 ```sh
-tar xzf cipherchat-server-0.1.2-linux.tar.gz
-sudo sh cipherchat-server-0.1.2/install.sh
+tar xzf cipherchat-server-0.2.0-linux.tar.gz
+sudo sh cipherchat-server-0.2.0/install.sh
 ```
 
 `install.sh` first checks every file against `SHA256SUMS` (a damaged or altered download is refused), then asks:
@@ -64,6 +64,14 @@ version starts again, and the setup says so. Running the same version again repa
 Where things are: program `/opt/cipherchat` (read-only to the service), settings `/etc/cipherchat/cipherchat.env`,
 data `/var/lib/cipherchat`, server key `/etc/cipherchat/server.key` — **back this key up offline**: without it no
 sealed identity can be opened. The database backups deliberately don't contain it.
+
+Room-key wraps are stored under rolling storage keys in `/var/lib/cipherchat-shred` (a new one daily, the last three
+kept), so a database copy or backup more than three days old can't open its wraps any more (PREKEYS-DESIGN.md §4.5).
+The server seals every wrap when it starts, so this holds from the first backup after an upgrade from 0.1.2; copies
+made before that upgrade (its snapshot, older backups) still hold them in the old form: delete them once you're sure.
+**Don't back that folder up**, and keep it out of disk images you keep. Restoring a backup older than three days works,
+but its wraps are gone: devices that already hold their room keys aren't affected; others read only what history sync
+gives them.
 
 ## Options in `/etc/cipherchat/cipherchat.env`
 

@@ -211,6 +211,7 @@ class LiveServerTest {
         owner.lock()
         alice.lock()
         ownerApi.call("admin/users/$user/delete", JsonObject(emptyMap()))     // tidy up the demo server
+        ownerApi.logout()                                                     // no store-less owner session left behind
         Unit
     }
 }

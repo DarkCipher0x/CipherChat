@@ -112,5 +112,15 @@ public class CryptoTests
         Refuses("another sender", () => Room.OpenMessage(room, 1, "dcx-admin", m.H, m.C, m.S, built.Key, oPub));
         Refuses("the wrong room key", () => Room.OpenMessage(room, 1, "alice", m.H, m.C, m.S, Random(32), aPub));
         Refuses("another epoch", () => Room.OpenMessage(room, 2, "alice", m.H, m.C, m.S, built.Key, aPub));
+
+        // a header this device can't open still gives the hash the next key names as "prev", once its signature checks out
+        Assert.Equal(Room.HeaderHash(got.Raw), Room.HeaderHashOf(room, 1, "dcx-admin", built.Pkg.H, built.Pkg.S, oPub));
+        var next = Room.BuildEpoch(alice, a.Fp, room, 2, [new Room.Recipient("alice", a.Fp, aPub)], Room.HeaderHashOf(room, 1, "dcx-admin", built.Pkg.H, built.Pkg.S, oPub));
+        Assert.Equal(Room.HeaderHash(got.Raw), Room.OpenEpoch(alice, a.Fp, room, 2, "alice", next.Pkg.H, next.Pkg.S, next.Pkg.W["alice"], aPub).Header.Str("prev"));
+        Refuses("a header signed by another identity", () => Room.HeaderHashOf(room, 1, "dcx-admin", built.Pkg.H, built.Pkg.S, aPub));
+        Refuses("a header replayed into another room", () => Room.HeaderHashOf("fedcba9876543210", 1, "dcx-admin", built.Pkg.H, built.Pkg.S, oPub));
+        Refuses("a header as another epoch", () => Room.HeaderHashOf(room, 2, "dcx-admin", built.Pkg.H, built.Pkg.S, oPub));
+        var bad = Unb64(built.Pkg.S); bad[10] ^= 1;
+        Refuses("a header with a changed signature", () => Room.HeaderHashOf(room, 1, "dcx-admin", built.Pkg.H, B64(bad), oPub));
     }
 }

@@ -129,6 +129,37 @@ fun SettingsScreen(model: ChatModel, back: () -> Unit) {
                 }
             }) { Text("Pair another device") }
 
+            // The devices on my signed device list hold my room keys. Removing one stops new history going to it; a
+            // removed device wipes its own store the next time it's unlocked.
+            DcxSectionHeader("Devices holding your room keys")
+            var keyRev by remember { mutableStateOf(0) }
+            val list = remember(keyRev, model.rev) { try { e.keyDevices() } catch (x: Exception) { null } }
+            val st = e.store
+            Text(if (st != null) "This phone keeps keys (device code ${st.code()}). They're sealed to this phone and your passphrase, and never leave it except to a device you approve."
+                 else "This session keeps no keys on this phone.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (list == null) Text("No devices yet: the server still holds every wrapped room key for you (compatibility mode).",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val seen = e.deviceSeen
+            list?.devices?.forEach { d ->
+                val mine = st != null && d.id == st.dev
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(d.name + if (mine) " (this phone)" else "")
+                        Text(seen[d.id]?.let { "active " + java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(it * 1000)) } ?: "not seen yet",
+                            style = DcxMonoSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    TextButton(onClick = {
+                        model.run {
+                            val why = if (mine) "The room keys this phone holds are wiped now, and older messages can only be read here again if another device sends them."
+                                      else "It gets no more history, and wipes the keys it holds the next time it's unlocked. If it was lost or stolen, also reset your identity."
+                            if (model.host.prompts.confirm("Remove ${d.name}?", why, "Remove", danger = true)) { e.removeKeyDevice(list, d); keyRev++ }
+                        }
+                    }) { Text("Remove", color = DcxPalette.Bad) }
+                }
+            }
+            if (st != null && (list?.devices?.size ?: 0) > 1)
+                OutlinedButton(shape = DcxButtonShape, onClick = { model.run { e.askHistoryAgain() } }) { Text("Ask for history again") }
+
             DcxSectionHeader("Session")
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(shape = DcxButtonShape, onClick = { model.host.lock() }) { Text("Lock now") }

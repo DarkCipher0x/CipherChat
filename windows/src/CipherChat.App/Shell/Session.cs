@@ -14,7 +14,7 @@ namespace CipherChat.App.Shell;
 /// </summary>
 public sealed class Session(Uri? devServer)
 {
-    public const string UserAgent = "CipherChat/0.1.2 (Windows)";
+    public const string UserAgent = "CipherChat/0.2.0 (Windows)";
 
     public VaultStore Vault { get; } = new();
     public VaultStore.Contents Saved { get; private set; } = new();
@@ -108,6 +108,10 @@ public sealed class Session(Uri? devServer)
     {
         Api!.Ask = ask;
         Engine = new ChatEngine(Api, me) { Ask = ask };
+        // This PC keeps the room keys it opens (so the server can delete its wrapped copies): sealed to this PC's device
+        // key and the passphrase, and the file to this Windows account (DPAPI). A store that can't be opened keeps nothing.
+        try { Engine.UseStore(me.OpenStore(KeyStore.PathFor(KeyStore.DefaultDir, Api.Origin.GetLeftPart(UriPartial.Authority), me.User), new DpapiGuard())); }
+        catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException) { Engine.UseStore(null); }
         if (!_netHooked)
         {
             // a network came back: queued messages go now instead of after the outbox's backoff
@@ -118,6 +122,13 @@ public sealed class Session(Uri? devServer)
     }
 
     private bool _netHooked;
+
+    private sealed class DpapiGuard : IStoreGuard
+    {
+        private static readonly byte[] Entropy = "CipherChat key store v1"u8.ToArray();
+        public byte[] Protect(byte[] plain) => System.Security.Cryptography.ProtectedData.Protect(plain, Entropy, System.Security.Cryptography.DataProtectionScope.CurrentUser);
+        public byte[] Unprotect(byte[] sealed_) => System.Security.Cryptography.ProtectedData.Unprotect(sealed_, Entropy, System.Security.Cryptography.DataProtectionScope.CurrentUser);
+    }
 
     /// <summary>Wipes the keys from memory; the PC stays paired.</summary>
     public void Lock()

@@ -64,6 +64,92 @@ public static class Room
         return new Opened(key, o, sig.Raw);
     }
 
+    /// <summary>
+    /// The same checks for a room key this device already holds (its wrap may be gone from the server): the header must be
+    /// signed by the trusted maker, list my current identity, and commit to exactly this key. Either header version.
+    /// </summary>
+    public static Opened CheckEpoch(string room, long itemEpoch, string itemFrom, string h, string s, PublicIdentity signer, byte[] key)
+    {
+        var sig = Canon.ParseSigned(h, 65536, V1V2);
+        var o = sig.Obj;
+        if (o.Str("t") != "epoch" || o.Str("room") != room || o.Long("epoch") != itemEpoch || o.Str("by") != itemFrom ||
+            o.Str("by") != signer.User || o.Str("by_fp") != signer.Fp) throw new CryptoFail("room key header doesn't match");
+        var label = o.Long("v") == 2 ? "dcx-chat/v2/epoch" : "dcx-chat/v1/epoch";
+        if (!Verify(signer, label, sig.Raw, Unb64(s))) throw new CryptoFail("room key signature is invalid");
+        if (key.Length != 32 || CommitOf(room, itemEpoch, key) != o.Str("commit")) throw new CryptoFail("room key commitment mismatch");
+        return new Opened(key, o, sig.Raw);
+    }
+
+    /// <summary>
+    /// The hash of a room key's header this device can't open (sealed to other devices, or made before it joined), once
+    /// its signature checks out: the next key made here still names it as "prev", so the key history stays one chain.
+    /// </summary>
+    public static string HeaderHashOf(string room, long itemEpoch, string itemFrom, string h, string s, PublicIdentity signer)
+    {
+        var sig = Canon.ParseSigned(h, 65536, V1V2);
+        var o = sig.Obj;
+        if (o.Str("t") != "epoch" || o.Str("room") != room || o.Long("epoch") != itemEpoch || o.Str("by") != itemFrom ||
+            o.Str("by") != signer.User || o.Str("by_fp") != signer.Fp) throw new CryptoFail("room key header doesn't match");
+        var label = o.Long("v") == 2 ? "dcx-chat/v2/epoch" : "dcx-chat/v1/epoch";
+        if (!Verify(signer, label, sig.Raw, Unb64(s))) throw new CryptoFail("room key signature is invalid");
+        return HeaderHash(sig.Raw);
+    }
+
+    // ------------------------------------------------------------------------------------------- per-device room keys (PROTOCOL.md §11)
+    private static readonly long[] V1V2 = [1, 2];
+    private static readonly long[] V2 = [2];
+
+    private static byte[] WrapAadV2(string room, long epoch, string u, string fp, string dev, string pid) =>
+        Utf8($"dcx-chat/v2/wrap|{room}|{epoch}|{u}|{fp}|{dev}|{pid}");
+
+    /// <summary>One listed device of a recipient and the prekey it published.</summary>
+    public sealed record DeviceLine(string U, string Fp, string Dev, Prekey Prekey);
+
+    /// <summary>One line per listed device of every recipient (any order); the package's W is keyed "user|dev".</summary>
+    public static Built BuildEpochV2(Identity me, string myFp, string room, long epoch, IEnumerable<DeviceLine> lines, string prev)
+    {
+        var key = Random(32);
+        var w = new Dictionary<string, string>();
+        var rec = new JsonArray();
+        foreach (var l in lines.OrderBy(l => l.U, StringComparer.Ordinal).ThenBy(l => l.Dev, StringComparer.Ordinal))
+        {
+            var wrapped = WrapKey(key, l.Prekey.KemPq, l.Prekey.KemEc, WrapAadV2(room, epoch, l.U, l.Fp, l.Dev, l.Prekey.Id));
+            w[l.U + "|" + l.Dev] = B64(wrapped);
+            rec.Add(new JsonObject { ["u"] = l.U, ["fp"] = l.Fp, ["dev"] = l.Dev, ["prekey"] = l.Prekey.Id, ["w"] = Hex(Sha3_256(wrapped)) });
+        }
+        var raw = Canon.Bytes(new JsonObject
+        {
+            ["v"] = 2, ["t"] = "epoch", ["room"] = room, ["epoch"] = epoch, ["by"] = me.User, ["by_fp"] = myFp,
+            ["at"] = NowMs(), ["prev"] = prev, ["recipients"] = rec, ["commit"] = CommitOf(room, epoch, key),
+        });
+        return new Built(new EpochPkg(B64(raw), B64(Sign(me, "dcx-chat/v2/epoch", raw)), w), key);
+    }
+
+    /// <summary>
+    /// A v2 epoch item with this device's wrap. <paramref name="prekeyOf"/> gives this device's prekey secret by id, or null
+    /// once it's erased (then nothing opens: that's the point).
+    /// </summary>
+    public static Opened OpenEpochV2(Identity me, string myFp, string myDev, string room, long itemEpoch, string itemFrom,
+                                     string h, string s, string? myWrap, PublicIdentity signer, Func<string, Device?> prekeyOf)
+    {
+        var sig = Canon.ParseSigned(h, 65536, V2);
+        var o = sig.Obj;
+        if (o.Str("t") != "epoch" || o.Str("room") != room || o.Long("epoch") != itemEpoch || o.Str("by") != itemFrom ||
+            o.Str("by") != signer.User || o.Str("by_fp") != signer.Fp) throw new CryptoFail("room key header doesn't match");
+        if (!Verify(signer, "dcx-chat/v2/epoch", sig.Raw, Unb64(s))) throw new CryptoFail("room key signature is invalid");
+        var line = o.Arr("recipients").Select(n => n as JsonObject ?? throw new CryptoFail("malformed recipients"))
+                    .FirstOrDefault(l => l.StrOrNull("u") == me.User && l.StrOrNull("dev") == myDev);
+        if (line is null || line.Str("fp") != myFp || myWrap is null)
+            throw new CryptoFail("this room key wasn't made for this device and your current identity");
+        var pid = line.Str("prekey");
+        var pre = prekeyOf(pid) ?? throw new CryptoFail("this device no longer has the prekey this room key was sealed to");
+        var wrapped = Unb64(myWrap, Sizes.Wrap);
+        if (Hex(Sha3_256(wrapped)) != line.Str("w")) throw new CryptoFail("wrapped key doesn't match the signed header");
+        var key = UnwrapKey(wrapped, pre.KemPq, pre.KemPqPk, pre.KemEc, pre.KemEcPk, WrapAadV2(room, itemEpoch, me.User, myFp, myDev, pid));
+        if (CommitOf(room, itemEpoch, key) != o.Str("commit")) throw new CryptoFail("room key commitment mismatch");
+        return new Opened(key, o, sig.Raw);
+    }
+
     // ------------------------------------------------------------------------------------------- messages
     private static byte[] Pad(byte[] data)
     {

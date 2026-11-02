@@ -233,6 +233,9 @@ public sealed class ChatApi(ITransport transport, string userAgent)
     /// The server holds a poll for up to 25 s; 45 s without an answer means the connection is dead. sig = the last call
     /// signal seen (calls.py): newer signals come back in "signals".
     /// </summary>
-    public Task<JsonObject> PollAsync(long since, long rev, long sig, CancellationToken ct = default) =>
-        CallAsync("poll?since=" + since + "&rev=" + rev + "&sig=" + sig, null, null, TimeSpan.FromSeconds(45), ct);
+    public Task<JsonObject> PollAsync(long since, long rev, long sig, CancellationToken ct = default) => PollAsync(since, rev, sig, null, ct);
+
+    /// <summary><paramref name="dev"/>: this PC's device id, so per-device room keys (protocol 2) come back for it.</summary>
+    public Task<JsonObject> PollAsync(long since, long rev, long sig, string? dev, CancellationToken ct = default) =>
+        CallAsync("poll?since=" + since + "&rev=" + rev + "&sig=" + sig + (dev is null ? "" : "&dev=" + dev), null, null, TimeSpan.FromSeconds(45), ct);
 }

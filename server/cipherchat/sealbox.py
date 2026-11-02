@@ -35,7 +35,10 @@ def _keys(version, purpose):
     ring = storage.KEYRING
     if ring is None or version not in ring.keys:
         raise SealError("the server key for this value isn't loaded")
-    base = ring.get(version)
+    return _derive(ring.get(version), purpose)
+
+
+def _derive(base, purpose):
     label = b"cipherchat-seal/v1|" + purpose.encode()
     return (hmac.new(base, label + b"|enc", hashlib.sha3_256).digest(),
             hmac.new(base, label + b"|mac", hashlib.sha3_256).digest())
@@ -52,25 +55,42 @@ def seal(plaintext, purpose):
     ring = storage.KEYRING
     if ring is None:
         raise SealError("the server key isn't loaded")
-    version = ring.current
-    enc, mac = _keys(version, purpose)
-    nonce = secrets.token_bytes(24)
-    ct = _xor(data, enc, nonce, purpose)
-    tag = hmac.new(mac, b"|".join([PREFIX.encode(), str(version).encode(), purpose.encode(), nonce, ct]), hashlib.sha3_256).digest()
-    return ".".join([PREFIX, str(version), _b64(nonce), _b64(ct), _b64(tag)])
+    return seal_with(PREFIX, ring.current, _keys(ring.current, purpose), data, purpose)
 
 
 def open_(sealed, purpose):
     """Sealed text -> bytes. Raises SealError if it was changed, moved to another purpose or the key is missing."""
+    return open_with(PREFIX, lambda version: _keys(version, purpose), sealed, purpose)
+
+
+def seal_with(prefix, version, keys, data, purpose):
+    """The same construction under a caller's own key (shred.py's rolling storage keys): keys = _derive(base, purpose)."""
+    enc, mac = keys
+    nonce = secrets.token_bytes(24)
+    ct = _xor(data, enc, nonce, purpose)
+    tag = hmac.new(mac, b"|".join([prefix.encode(), str(version).encode(), purpose.encode(), nonce, ct]), hashlib.sha3_256).digest()
+    return ".".join([prefix, str(version), _b64(nonce), _b64(ct), _b64(tag)])
+
+
+def version_of(sealed, prefix):
+    """The key version a sealed value names, or None if it isn't one of `prefix`."""
+    parts = sealed.split(".") if isinstance(sealed, str) else ()
+    return int(parts[1]) if len(parts) == 5 and parts[0] == prefix and parts[1].isdigit() and parts[1].isascii() else None
+
+
+def open_with(prefix, keys_for, sealed, purpose):
+    """keys_for(version) -> (enc, mac), raising SealError when that key is gone."""
     try:
-        prefix, ver, n, c, t = sealed.split(".")
+        pre, ver, n, c, t = sealed.split(".")
+        if not (ver.isdigit() and ver.isascii()):
+            raise ValueError
         version, nonce, ct, tag = int(ver), _unb64(n), _unb64(c), _unb64(t)
     except (AttributeError, ValueError):
         raise SealError("not a sealed value")
-    if prefix != PREFIX or len(nonce) != 24 or len(tag) != 32:
+    if pre != prefix or len(nonce) != 24 or len(tag) != 32:
         raise SealError("not a sealed value")
-    enc, mac = _keys(version, purpose)
-    want = hmac.new(mac, b"|".join([PREFIX.encode(), str(version).encode(), purpose.encode(), nonce, ct]), hashlib.sha3_256).digest()
+    enc, mac = keys_for(version)
+    want = hmac.new(mac, b"|".join([prefix.encode(), str(version).encode(), purpose.encode(), nonce, ct]), hashlib.sha3_256).digest()
     if not hmac.compare_digest(want, tag):
         raise SealError("the sealed value doesn't verify")
     return _xor(ct, enc, nonce, purpose)

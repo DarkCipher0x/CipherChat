@@ -16,6 +16,8 @@ Configuration (environment, see deploy/cipherchat.env):
   CIPHERCHAT_OWNER       the owner's username: the chat's trust anchor (default "owner")
   CIPHERCHAT_STATE_DIR   database and encrypted attachments (default /var/lib/cipherchat)
   CIPHERCHAT_KEY_FILE    the server key (default /etc/cipherchat/server.key): keep it out of database backups
+  CIPHERCHAT_SHRED_DIR   the rolling storage keys for room-key wraps (default <state dir>-shred, shred.py): keep it out
+                         of database backups, and don't back it up (that's the point)
   CIPHERCHAT_LISTEN      127.0.0.1:8787
   CIPHERCHAT_WEB_DIR     the web portal's files (default ../web next to this server)
   CIPHERCHAT_TRUST_PROXY 1 = take the client address from X-Real-IP set by nginx on loopback (default 1)
@@ -50,11 +52,12 @@ from urllib.parse import quote, unquote
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-VERSION = "0.1.2"
+VERSION = "0.2.0"
 ORIGIN = os.environ.get("CIPHERCHAT_ORIGIN", "http://127.0.0.1:8787").rstrip("/")
 NAME = (os.environ.get("CIPHERCHAT_NAME") or "CipherChat").strip()[:60]
 STATE_DIR = os.environ.get("CIPHERCHAT_STATE_DIR", "/var/lib/cipherchat")
 KEY_FILE = os.environ.get("CIPHERCHAT_KEY_FILE", "/etc/cipherchat/server.key")
+SHRED_DIR = os.environ.get("CIPHERCHAT_SHRED_DIR") or STATE_DIR.rstrip("/\\") + "-shred"
 LISTEN = os.environ.get("CIPHERCHAT_LISTEN", "127.0.0.1:8787")
 WEB_DIR = os.path.realpath(os.environ.get("CIPHERCHAT_WEB_DIR", os.path.join(HERE, "..", "..", "web")))
 TRUST_PROXY = os.environ.get("CIPHERCHAT_TRUST_PROXY", "1") == "1"
@@ -69,6 +72,8 @@ import chat                     # noqa: E402  the chat itself (shared with the D
 import chat_requests            # noqa: E402  public access requests (shared)
 import passkeys                 # noqa: E402  passkey (WebAuthn) sign-in, e.g. a passkey kept in Bitwarden
 import calls                    # noqa: E402  voice and video calls: signal relay and TURN credentials (shared)
+import history                  # noqa: E402  device lists, key-store acknowledgements, wrap deletion, history sync
+import shred                    # noqa: E402  rolling storage keys, so old database copies can't open their wraps
 import addons                   # noqa: E402  add-ons: programs with their own identity, signed requests (docs/ADDONS.md)
 import settings_api             # noqa: E402  server settings, email, notifications and roles (admin page)
 
@@ -103,6 +108,7 @@ def db():
     conn = sqlite3.connect(DB_PATH, timeout=10, factory=_Conn)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA secure_delete=ON")         # deleted rows (wraps, messages) are overwritten, not left in free pages
     return conn
 
 
@@ -113,6 +119,7 @@ def init_db():
     with _lock, db() as c:
         authz.migrate(c)
         chat.migrate(c)
+        history.migrate(c)
         chat_requests.migrate(c)
         mail_api.migrate(c)
         passkeys.migrate(c)
@@ -532,7 +539,9 @@ class Handler(BaseHTTPRequestHandler):
     ctl = None                                   # the shared chat module asks; CipherChat has no control API
 
     def log_message(self, fmt, *args):           # quiet, address-free logging
-        sys.stderr.write("%s %s %s\n" % (self.command, self.path.split("?")[0][:120], args[1] if len(args) > 1 else ""))
+        # (an idle keep-alive connection that times out before a request line has no command or path yet)
+        path = (getattr(self, "path", None) or "-").split("?")[0][:120]
+        sys.stderr.write("%s %s %s\n" % (getattr(self, "command", None) or "-", path, args[1] if len(args) > 1 else ""))
 
     def setup(self):
         super().setup()
@@ -781,7 +790,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.addon_request("POST")
         if not self.csrf_ok():
             self.drain()
-            return self.send_json(403, {"error": "csrf"})
+            # the origin is public anyway; naming it tells an app that typed another address for this server what to use
+            return self.send_json(403, {"error": "This request didn't come from this server's own address. Use " + ORIGIN + "."})
         rest = path[len("/chat/api/"):]
         if rest.startswith("auth/") and rest[5:] in AUTH_POSTS:
             return self.auth_post(rest[5:], ip)
@@ -973,6 +983,7 @@ def bind_modules():
     chat_requests.bind(me, access_api, mail_api)
     passkeys.bind(me)
     calls.bind(me, chat)
+    history.bind(me, chat)
     addons.bind(me, chat, storage)
     if chat_requests.purge not in chat.EXTRA_SWEEPS:
         chat.EXTRA_SWEEPS.append(chat_requests.purge)
@@ -1050,6 +1061,9 @@ def main(argv):
             sys.stderr.write("CipherChat mailer running\n")
             return mail_api.mailer_loop()
         raise SystemExit("usage: server.py [serve | owner-invite | mailer | backup <folder> <how many to keep>]")
+    shred.bind(chat, SHRED_DIR)              # only the server stores and reads wraps (the backup and mailer jobs never do)
+    with db() as c:                          # seal wraps a migration just moved (or a restore brought back) before the
+        shred.sweep(c)                       # health check passes, so no backup taken right after an upgrade holds them
     host, _, port = LISTEN.rpartition(":")
     srv = Server((host.strip("[]") or "127.0.0.1", int(port)), Handler)
     threading.Thread(target=chat.purge_loop, name="chat-retention", daemon=True).start()

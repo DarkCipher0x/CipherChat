@@ -237,18 +237,21 @@ public static class Hybrid
         finally { Wipe(wk); }
     }
 
-    public static byte[] UnwrapKey(byte[] wrapped, Identity id, byte[] aad)
+    public static byte[] UnwrapKey(byte[] wrapped, Identity id, byte[] aad) => UnwrapKey(wrapped, id.KemPq, id.KemPqPk, id.KemEc, id.KemEcPk, aad);
+
+    internal static byte[] UnwrapKey(byte[] wrapped, MLKemPrivateKeyParameters kemPq, byte[] kemPqPk,
+                                     X25519PrivateKeyParameters kemEc, byte[] kemEcPk, byte[] aad)
     {
         if (wrapped.Length != Sizes.Wrap) throw new CryptoFail("wrapped key has the wrong length");
         var ct = wrapped[..1568];
         var ephPub = wrapped[1568..1600];
         var sealed_ = wrapped[1600..];
         var dec = new MLKemDecapsulator(MLKemParameters.ml_kem_1024);
-        dec.Init(id.KemPq);
+        dec.Init(kemPq);
         var ssPq = new byte[dec.SecretLength];
         dec.Decapsulate(ct, 0, ct.Length, ssPq, 0, ssPq.Length);   // implicit rejection: a wrong ct gives a random secret
-        var ssEc = X25519(id.KemEc, ephPub);
-        var wk = WrapKdf(ssPq, ssEc, ct, ephPub, id.KemPqPk, id.KemEcPk);
+        var ssEc = X25519(kemEc, ephPub);
+        var wk = WrapKdf(ssPq, ssEc, ct, ephPub, kemPqPk, kemEcPk);
         Wipe(ssPq, ssEc);
         try
         {

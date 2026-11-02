@@ -12,7 +12,8 @@ namespace CipherChat.Engine;
 ///   - nothing is shown as a message unless its hybrid signature verifies under a TRUSTED identity (Trust);
 ///   - room keys are only accepted from trusted identities, and only handed to trusted identities;
 ///   - a room key that went to anyone this device doesn't trust is replaced before the next message is sent;
-///   - keys live in memory only; <see cref="Lock"/> wipes them.
+///   - room keys in memory are wiped by <see cref="Lock"/>; the ones this PC keeps (so the server can delete its
+///     wrapped copies) are in its <see cref="KeyStore"/>, sealed to this PC and the passphrase (KeyHistory.cs).
 /// Events are raised on background threads; the UI marshals them.
 /// </summary>
 public sealed class ChatEngine(ChatApi api, Me me)
@@ -25,6 +26,23 @@ public sealed class ChatEngine(ChatApi api, Me me)
     private long _lastSeq, _rev, _sig;
     private Calls? _calls;
     private bool _autoBusy;
+    private KeyHistory? _hist;
+    private bool _histReady;
+
+    /// <summary>This PC's key store (set with <see cref="UseStore"/> before <see cref="StartAsync"/>); null keeps nothing.</summary>
+    public KeyStore? Store { get; private set; }
+    internal KeyHistory History => _hist ??= new KeyHistory(this);
+    public void UseStore(KeyStore? store) => Store = store;
+
+    /// <summary>
+    /// Another of my devices asks for this PC's room keys: (its name, when it was added, its device code). True sends,
+    /// false declines, null asks again later. Unset: requests wait for a device that asks the person.
+    /// </summary>
+    public Func<string, DateTimeOffset, string, Task<bool?>>? ConfirmSync { get; set; }
+
+    /// <summary>A room's log was cleared to be shown again from the start (older keys arrived from another device).</summary>
+    public event Action<Room>? RoomReset;
+    public IReadOnlyList<long> HistoryChoices => State["limits"]?["history"] is JsonArray a ? a.Select(x => x!.GetValue<long>()).ToList() : [0];
 
     public ChatApi Api { get; } = api;
     public Me Me { get; } = me;
@@ -69,10 +87,105 @@ public sealed class ChatEngine(ChatApi api, Me me)
         Online = true;
         OnlineChanged?.Invoke(true);
         if (Me.AnchorFp is null) Say(null, LineKind.Warn, "You haven't verified the owner yet, so nobody can be trusted. Compare safety numbers to pin the owner's identity.");
+        if (Store is not null)
+        {
+            try { await History.EnrollAsync().ConfigureAwait(false); }
+            catch (Exception e) when (e is ApiException or CryptoFail or InvalidOperationException or KeyNotFoundException)
+            {
+                Say(null, LineKind.Err, "Couldn't add this PC to your devices: " + e.Message + ". Its keys are used for this session only.");
+                Store?.Close();
+                Store = null;
+            }
+        }
+        else if (!AddonIdentity.IsAddon(MyUser)) Say(null, LineKind.Sys, "This session keeps no room keys on this PC. It reads what the server still holds for you; your other devices hold the rest.");
+        // A fresh prekey before anything can make a room key, so the first key after unlocking is per-device too;
+        // erasing expired ones waits for the import below.
+        if (Store is not null) await PrekeysOrWarnAsync(erase: false).ConfigureAwait(false);
+        _histReady = true;
+        _ = History.OnStateAsync();
         _poll = new CancellationTokenSource();
         _ = Task.Run(() => PollLoopAsync(_poll.Token));
         _outbox.Start(_poll.Token);
+        if (Store is not null) _ = Task.Run(ImportThenPrekeysAsync);
     }
+
+    private async Task ImportThenPrekeysAsync()
+    {
+        await ImportAllAsync().ConfigureAwait(false);
+        await PrekeysOrWarnAsync(erase: true).ConfigureAwait(false);
+    }
+
+    private async Task PrekeysOrWarnAsync(bool erase)
+    {
+        try { await History.PrekeysAsync(erase).ConfigureAwait(false); }
+        catch (Exception e) when (e is ApiException or CryptoFail or InvalidOperationException or KeyNotFoundException or IOException)
+        {
+            Say(null, LineKind.Warn, "Couldn't publish this PC's prekey (" + e.Message + "): new room keys use compatibility mode until it's done.");
+        }
+    }
+
+    /// <summary>This PC's device id on fetches, so per-device room keys (protocol 2) come back for it.</summary>
+    private string DevQ(string sep) => Store is { } s ? sep + "dev=" + s.Dev : "";
+
+    /// <summary>Opens every room's wraps once, so this PC holds (and acknowledges) every key it can and the server can
+    /// delete them; then each room's history window is applied to the keys kept here.</summary>
+    internal async Task ImportAllAsync()
+    {
+        foreach (var r in Rooms)
+        {
+            await r.Lock.WaitAsync().ConfigureAwait(false);
+            try { await LoadEpochsAsync(r).ConfigureAwait(false); }
+            catch (Exception e) when (e is ApiException or CryptoFail or KeyNotFoundException or InvalidOperationException) { /* retried when the room is opened */ }
+            finally { r.Lock.Release(); }
+        }
+        await History.FlushAcksAsync().ConfigureAwait(false);
+        ApplyWindowNow();
+    }
+
+    private void ApplyWindowNow()
+    {
+        foreach (var (room, epoch) in History.ApplyWindow())
+        {
+            if (RoomById(room) is not { } r) continue;
+            if (r.Keys.Remove(epoch, out var k)) Wipe(k);
+            r.Expired.Add(epoch);
+        }
+    }
+
+    /// <summary>Older keys arrived from another of my devices: every room is shown again from the start.</summary>
+    internal async Task KeysArrivedAsync()
+    {
+        foreach (var r in Rooms)
+        {
+            await r.Lock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                lock (r.Timeline) r.Timeline.Clear();
+                r.Seqs.Clear(); r.MsgIds.Clear(); r.EpochTried.Clear(); r.Msgs.Clear(); r.Pending.Clear();
+                r.Oldest = long.MaxValue;
+                r.Loaded = false;
+                lock (r) r.Loading = null;
+            }
+            finally { r.Lock.Release(); }
+            RoomReset?.Invoke(r);
+        }
+    }
+
+    /// <summary>This PC is no longer one of my devices: its store is gone, and so are the keys in memory.</summary>
+    internal void StoreRemoved()
+    {
+        _hist?.ForgetPrekeys();
+        Store = null;
+        lock (_gate) foreach (var r in _rooms.Values) r.Wipe();
+    }
+
+    // ------------------------------------------------------------------------------------------- devices holding my keys
+    /// <summary>My signed device list (null in compatibility mode: no device has joined yet).</summary>
+    public DeviceList? KeyDevices() => History.MyList();
+    public IReadOnlyDictionary<string, long> DeviceSeen =>
+        State["me"]?["device_seen"] is JsonObject o ? o.ToDictionary(p => p.Key, p => p.Value!.GetValue<long>()) : new Dictionary<string, long>();
+    public Task AskHistoryAgainAsync() => History.AskAgainAsync();
+    public Task RemoveKeyDeviceAsync(DeviceList list, DeviceEntry d) => History.RemoveAsync(list, d);
 
     public async Task RefreshAsync() => ApplyState(await Api.CallAsync("state").ConfigureAwait(false));
 
@@ -95,11 +208,12 @@ public sealed class ChatEngine(ChatApi api, Me me)
             foreach (var id in _rooms.Keys.Where(k => !seen.Contains(k)).ToList()) { _rooms[id].Wipe(); _rooms.Remove(id); }
         }
         RoomsChanged?.Invoke();
+        if (_histReady) _ = History.OnStateAsync();
     }
 
     internal Person? Trusted(string user) => People.TryGetValue(user, out var p) && p.Trust == TrustLevel.Ok && p.Pub is not null ? p : null;
 
-    private void Say(Room? r, LineKind k, string text)
+    internal void Say(Room? r, LineKind k, string text)
     {
         if (r is null) { Notice?.Invoke(null, k, text); return; }
         Add(r, new Entry { At = DateTimeOffset.UtcNow.ToUnixTimeSeconds(), Kind = k, Who = k == LineKind.Err ? "!!" : "--", Text = text });
@@ -134,7 +248,7 @@ public sealed class ChatEngine(ChatApi api, Me me)
         try
         {
             await LoadEpochsAsync(r).ConfigureAwait(false);
-            var res = await Api.CallAsync("rooms/" + r.Id + "/items").ConfigureAwait(false);
+            var res = await Api.CallAsync("rooms/" + r.Id + "/items" + DevQ("?")).ConfigureAwait(false);
             r.MoreHistory = res["more"]?.GetValue<bool>() == true;
             foreach (var it in res.Arr("items").OfType<JsonObject>()) await HandleAsync(r, it, live: false).ConfigureAwait(false);
             r.Loaded = true;
@@ -152,40 +266,70 @@ public sealed class ChatEngine(ChatApi api, Me me)
 
     public async Task LoadOlderAsync(Room r)
     {
-        var res = await Api.CallAsync("rooms/" + r.Id + "/items?before=" + r.Oldest).ConfigureAwait(false);
+        var res = await Api.CallAsync("rooms/" + r.Id + "/items?before=" + r.Oldest + DevQ("&")).ConfigureAwait(false);
         foreach (var it in res.Arr("items").OfType<JsonObject>().Reverse()) await HandleAsync(r, it, live: false).ConfigureAwait(false);
         r.MoreHistory = res["more"]?.GetValue<bool>() == true;
     }
 
     private async Task LoadEpochsAsync(Room r)
     {
-        var res = await Api.CallAsync("rooms/" + r.Id + "/epochs").ConfigureAwait(false);
+        // With a key store, every signed header comes back (the wrap may be gone because a device of mine holds the key)
+        var res = await Api.CallAsync("rooms/" + r.Id + "/epochs" + (Store is not null ? "?all=1" + DevQ("&") : "")).ConfigureAwait(false);
         foreach (var it in res.Arr("items").OfType<JsonObject>()) OpenEpochItem(r, it, announce: false);
+        if (Store is not null) await History.FlushAcksAsync().ConfigureAwait(false);
+        var old = Store is not null ? KeyHistory.Leftover(res.Arr("items")) : 0;
+        if (old > 0 && !r.LeftoverWarned) { r.LeftoverWarned = true; Say(r, LineKind.Warn, KeyHistory.LeftoverWarning(old)); }
     }
 
-    /// <summary>Accept a room key only if a trusted identity signed it, it was made for MY current identity, and its
-    /// commitment matches. Note anyone it went to whom this device doesn't trust: that key won't be used to send.</summary>
+    /// <summary>Accept a room key only if a trusted identity signed it, it was made for MY current identity (or this PC
+    /// already holds it), and its commitment matches. Note anyone it went to whom this device doesn't trust: that key
+    /// won't be used to send. A key opened from its wrap is kept and acknowledged, so the server can delete the wrap.</summary>
     private bool OpenEpochItem(Room r, JsonObject it, bool announce)
     {
         var epoch = it.Long("epoch");
         if (r.Keys.ContainsKey(epoch)) return true;
+        if (r.Expired.Contains(epoch)) return false;
         var from = it.Str("from");
         var signer = Trusted(from);
         if (signer is null) { if (announce) Say(r, LineKind.Warn, "Ignored room key #" + epoch + " from " + from + ": that identity isn't verified."); return false; }
         var body = it.Obj("body");
         var w = body.StrOrNull("w");
-        if (w is null) return false;
+        var held = Store is not null ? History.Kept(r.Id, epoch) : null;
+        if (held is null && w is null)
+        {
+            // not for this device, but the next key made here must still follow on from it
+            try { r.Hashes.TryAdd(epoch, CipherChat.Crypto.Room.HeaderHashOf(r.Id, epoch, from, body.Str("h"), body.Str("s"), signer.Pub!)); }
+            catch (Exception e) when (e is CryptoFail or KeyNotFoundException or InvalidOperationException or FormatException) { }
+            return false;
+        }
         try
         {
-            var o = CipherChat.Crypto.Room.OpenEpoch(Me.Id, Me.Fp, r.Id, epoch, from, body.Str("h"), body.Str("s"), w, signer.Pub!);
+            CipherChat.Crypto.Room.Opened? o = null;
+            if (held is not null)
+            {
+                try { o = CipherChat.Crypto.Room.CheckEpoch(r.Id, epoch, from, body.Str("h"), body.Str("s"), signer.Pub!, held); }
+                catch (CryptoFail) { Wipe(held); held = null; }
+            }
+            if (o is null && w is not null)
+                o = body.LongOrNull("v") == 2
+                    ? CipherChat.Crypto.Room.OpenEpochV2(Me.Id, Me.Fp, Store?.Dev ?? "", r.Id, epoch, from, body.Str("h"), body.Str("s"), w, signer.Pub!, History.PrekeyOf)
+                    : CipherChat.Crypto.Room.OpenEpoch(Me.Id, Me.Fp, r.Id, epoch, from, body.Str("h"), body.Str("s"), w, signer.Pub!);
+            if (o is null) throw new CryptoFail("the key this PC holds doesn't match the signed header");
+            var at = o.Header.LongOrNull("at") ?? 0;
+            if (Store is not null && !KeyHistory.InWindow(r.Info, epoch, at)) { Wipe(o.Key); r.Expired.Add(epoch); return false; }
+            if (held is null && Store is not null) History.Keep(r.Id, epoch, o.Key, at);
             r.Keys[epoch] = o.Key;
             r.Hashes[epoch] = CipherChat.Crypto.Room.HeaderHash(o.Raw);
             r.Headers[epoch] = o.Header;
-            var odd = o.Header.Arr("recipients").OfType<JsonObject>().Where(x => Trusted(x.Str("u")) is not { } p || p.Fp != x.Str("fp")).Select(x => x.Str("u")).ToList();
+            // (a per-device key also names devices: one missing from that person's verified device list counts the same)
+            var v2 = o.Header.LongOrNull("v") == 2;
+            var odd = o.Header.Arr("recipients").OfType<JsonObject>()
+                       .Where(x => Trusted(x.Str("u")) is not { } p || p.Fp != x.Str("fp") || (v2 && !History.DeviceListed(x.Str("u"), x.Str("dev"))))
+                       .Select(x => x.Str("u")).Distinct().ToList();
             if (odd.Count > 0)
             {
                 r.Untrusted.Add(epoch);
-                Say(r, LineKind.Warn, "Room key #" + epoch + " was also given to identities you can't verify: " + string.Join(", ", odd) + ". It will be replaced before you send.");
+                Say(r, LineKind.Warn, "Room key #" + epoch + " was also given to identities or devices you can't verify: " + string.Join(", ", odd) + ". It will be replaced before you send.");
             }
             if (epoch > 1 && r.Hashes.TryGetValue(epoch - 1, out var prev) && o.Header.StrOrNull("prev") != prev)
                 Say(r, LineKind.Warn, "Room key #" + epoch + " doesn't follow on from key #" + (epoch - 1) + " (key history was altered).");
@@ -226,7 +370,12 @@ public sealed class ChatEngine(ChatApi api, Me me)
                 try { await LoadEpochsAsync(r).ConfigureAwait(false); } catch (ApiException) { }
             }
             var who = Trusted(from);
-            if (!r.Keys.TryGetValue(epoch, out var key)) { Add(r, Line(LineKind.Warn, from, "[encrypted with room key #" + epoch + ", which wasn't made for you]")); return; }
+            if (!r.Keys.TryGetValue(epoch, out var key))
+            {
+                Add(r, Line(LineKind.Warn, from, r.Expired.Contains(epoch) ? "[older than this room's history window: its key was erased from your devices]"
+                    : "[encrypted with room key #" + epoch + ", which " + (Store is not null ? "this PC doesn't hold (another of your devices can send it: Settings, Devices holding your keys)" : "wasn't made for you") + "]"));
+                return;
+            }
             if (who is null) { Add(r, Line(LineKind.Warn, from, "[hidden: " + from + "'s identity isn't verified]")); return; }
             CipherChat.Crypto.Room.OpenedMsg m;
             try
@@ -244,9 +393,11 @@ public sealed class ChatEngine(ChatApi api, Me me)
         {
             var got = OpenEpochItem(r, it, live);
             var epoch = it.Long("epoch");
-            var recips = got && r.Headers.TryGetValue(epoch, out var h) ? string.Join(", ", h.Arr("recipients").OfType<JsonObject>().Select(x => x.Str("u"))) : "";
+            var recips = got && r.Headers.TryGetValue(epoch, out var h) ? string.Join(", ", h.Arr("recipients").OfType<JsonObject>().Select(x => x.Str("u")).Distinct()) : "";   // one name per person, however many devices
             Add(r, Line(LineKind.Sys, "--", got ? "new room key #" + epoch + " from " + from + " for " + recips + " (signed, ML-KEM-1024 + X25519)"
-                                              : "room key #" + epoch + " from " + from + (it.Obj("body").StrOrNull("w") is not null ? " (not accepted)" : " (not for you)")));
+                                              : "room key #" + epoch + " from " + from + (it.Obj("body").StrOrNull("w") is not null ? " (not accepted)"
+                                                  : r.Expired.Contains(epoch) ? " (past this room's history window)"
+                                                  : Store is not null && MadeForMe(it) ? " (made for you; this PC doesn't hold it)" : " (not for you)")));
         }
         else if (kind == "event") Add(r, Line(LineKind.Server, "server", Describe(it.Obj("body"))));
         else if (kind == "redact")
@@ -258,6 +409,12 @@ public sealed class ChatEngine(ChatApi api, Me me)
             if (e?.Message is { Burn: > 0, Revealed: true, Mine: false, Burned: false }) return;
             Remove(r, target);
         }
+    }
+
+    private bool MadeForMe(JsonObject it)
+    {
+        try { return Canon.ParseSigned(it.Obj("body").Str("h"), 65536).Obj.Arr("recipients").OfType<JsonObject>().Any(x => x.StrOrNull("u") == MyUser); }
+        catch (CryptoFail) { return false; }
     }
 
     private void Remove(Room r, long seq)
@@ -344,17 +501,33 @@ public sealed class ChatEngine(ChatApi api, Me me)
     public ChatMessage? MessageById(Room r, string id) => r.Msgs.GetValueOrDefault(id);
 
     // ------------------------------------------------------------------------------------------- room keys and sending
+    // A per-device key (protocol 2) when every recipient device has a fresh prekey, otherwise a compatibility key (v1),
+    // also when the server says someone still has an older app signed in.
     private async Task<byte[]> RotateAsync(Room r, string reason)
     {
-        for (var attempt = 0; attempt < 3; attempt++)
+        var v1Only = false;
+        var refreshed = false;
+        for (var attempt = 0; attempt < 4; attempt++)
         {
+            // the new key names the current one's header: fetch it if this device hasn't seen it yet
+            if (r.Epoch > 0 && !r.Hashes.ContainsKey(r.Epoch)) await LoadEpochsAsync(r).ConfigureAwait(false);
+            // what's cached may be older than a prekey or a sign-out: look once more before settling for compatibility
+            if (!v1Only && !refreshed && Store is not null && History.V2Lines(r.Eligible).Lines is null)
+            {
+                refreshed = true;
+                await RefreshAsync().ConfigureAwait(false);
+            }
             var recips = r.Eligible.Select(u =>
             {
                 var p = Trusted(u) ?? throw new InvalidOperationException("Can't give " + u + " the room key: " + (People.GetValueOrDefault(u)?.Why ?? "no verified identity") + ".");
                 return new CipherChat.Crypto.Room.Recipient(u, p.Fp!, p.Pub!);
             }).ToList();
             if (recips.All(x => x.U != MyUser)) throw new InvalidOperationException("Your identity isn't certified yet, so you can't hold this room's key.");
-            var built = CipherChat.Crypto.Room.BuildEpoch(Me.Id, Me.Fp, r.Id, r.Epoch + 1, recips, r.Hashes.GetValueOrDefault(r.Epoch) ?? "");
+            var v2 = v1Only ? (null, "someone has an older app signed in") : History.V2Lines(r.Eligible);
+            var prev = r.Hashes.GetValueOrDefault(r.Epoch) ?? "";
+            var built = v2.Lines is { } lines
+                ? CipherChat.Crypto.Room.BuildEpochV2(Me.Id, Me.Fp, r.Id, r.Epoch + 1, lines, prev)
+                : CipherChat.Crypto.Room.BuildEpoch(Me.Id, Me.Fp, r.Id, r.Epoch + 1, recips, prev);
             var w = new JsonObject();
             foreach (var (u, v) in built.Pkg.W) w[u] = v;
             try
@@ -365,9 +538,21 @@ public sealed class ChatEngine(ChatApi api, Me me)
                 var raw = Unb64(built.Pkg.H);
                 r.Hashes[epoch] = CipherChat.Crypto.Room.HeaderHash(raw);
                 r.Headers[epoch] = (JsonObject)Canon.Parse(Encoding.UTF8.GetString(raw))!;
-                Say(r, LineKind.Sys, "Made room key #" + epoch + " for " + string.Join(", ", recips.Select(x => x.U)) + " (" + reason + ").");
+                if (Store is not null)
+                {
+                    History.Keep(r.Id, epoch, built.Key, r.Headers[epoch].LongOrNull("at") ?? 0);
+                    await History.FlushAcksAsync().ConfigureAwait(false);
+                }
+                var how = v2.Lines is { } l ? ", sealed to each of their " + l.Count + " devices" : Store is not null ? "; compatibility mode: " + v2.Why : "";
+                Say(r, LineKind.Sys, "Made room key #" + epoch + " for " + string.Join(", ", recips.Select(x => x.U)) + " (" + reason + how + ").");
                 await RefreshAsync().ConfigureAwait(false);
                 return built.Key;
+            }
+            catch (ApiException e) when (e.Flag("v1") && !v1Only)
+            {
+                Wipe(built.Key);
+                v1Only = true;
+                await RefreshAsync().ConfigureAwait(false);
             }
             catch (ApiException e) when (e.Flag("stale"))
             {
@@ -583,10 +768,14 @@ public sealed class ChatEngine(ChatApi api, Me me)
         await MaybeAutoRotateAsync(r).ConfigureAwait(false);
     }
 
-    public async Task UpdateRoomAsync(Room r, string name, string topic, long retentionDays)
+    public async Task UpdateRoomAsync(Room r, string name, string topic, long retentionDays, long? historyDays = null, bool? historySync = null)
     {
-        await Api.CallAsync("rooms/" + r.Id + "/update", new JsonObject { ["name"] = name.TrimStart('#'), ["topic"] = topic, ["retention_days"] = retentionDays }).ConfigureAwait(false);
+        var body = new JsonObject { ["name"] = name.TrimStart('#'), ["topic"] = topic, ["retention_days"] = retentionDays };
+        if (historyDays is { } hd) body["history_days"] = hd;
+        if (historySync is { } hs) body["history_sync"] = hs;
+        await Api.CallAsync("rooms/" + r.Id + "/update", body).ConfigureAwait(false);
         await RefreshAsync().ConfigureAwait(false);
+        if (historyDays is not null) ApplyWindowNow();
     }
 
     public async Task LeaveAsync(Room r) { await Api.CallAsync("rooms/" + r.Id + "/leave", new JsonObject()).ConfigureAwait(false); await RefreshAsync().ConfigureAwait(false); }
@@ -625,7 +814,7 @@ public sealed class ChatEngine(ChatApi api, Me me)
         {
             try
             {
-                var res = await Api.PollAsync(_lastSeq, _rev, _sig, ct).ConfigureAwait(false);
+                var res = await Api.PollAsync(_lastSeq, _rev, _sig, Store?.Dev, ct).ConfigureAwait(false);
                 if (res["signals"] is JsonArray signals && signals.Count > 0)
                 {
                     _sig = Math.Max(_sig, signals.OfType<JsonObject>().Max(s => s.LongOrNull("sid") ?? 0));
@@ -669,5 +858,9 @@ public sealed class ChatEngine(ChatApi api, Me me)
             foreach (var r in _rooms.Values) r.Wipe();
             _rooms.Clear();
         }
+        _hist?.ForgetPrekeys();
+        Store?.Close();
+        Store = null;
+        Me.ForgetStoreKey();
     }
 }

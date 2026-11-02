@@ -3,6 +3,8 @@
 *.local.txt
 tools/*.local.txt
 tools/*.local.ps1
+# Maintainer hand-off notes kept on this PC only
+*.local.md
 # This PC's Android SDK path
 android/local.properties
 # Signing material, should any ever be made inside the project (the Android release key lives outside it)

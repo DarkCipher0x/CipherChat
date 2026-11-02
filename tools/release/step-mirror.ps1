@@ -50,6 +50,9 @@ try {
     # 3. The tree becomes exactly the staged copy.
     Get-ChildItem $script:repo -Force | Where-Object Name -ne '.git' | Remove-Item -Recurse -Force
     Get-ChildItem $top -Force | Copy-Item -Destination $script:repo -Recurse -Force
+    # Re-read every file: the copies carry the source zip's fixed timestamps, so git's stat cache would otherwise
+    # skip an edit that kept a file's size (0.1.2 missed two "0.1.1" -> "0.1.2" changes this way)
+    G rm -r -q --cached --ignore-unmatch .
     G -c core.safecrlf=false add -A
 
     if ($localTag -or $remoteTag) {

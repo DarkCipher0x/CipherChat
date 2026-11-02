@@ -195,7 +195,9 @@ class ChatApi(private val transport: Transport, private val userAgent: String) {
      * The server holds a poll for up to 25 s; 45 s without an answer means the connection is dead. sig = the last call
      * signal seen (calls.py): newer signals come back in "signals".
      */
-    suspend fun poll(since: Long, rev: Long, sig: Long): JsonObject = call("poll?since=$since&rev=$rev&sig=$sig", timeoutMs = 45_000)
+    /** [dev]: this phone's device id, so per-device room keys (protocol 2) come back for it. */
+    suspend fun poll(since: Long, rev: Long, sig: Long, dev: String? = null): JsonObject =
+        call("poll?since=$since&rev=$rev&sig=$sig" + (if (dev == null) "" else "&dev=$dev"), timeoutMs = 45_000)
 
     companion object { const val NORMAL = 30_000L }
 }

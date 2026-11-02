@@ -3,8 +3,12 @@
 //   - nothing is shown as a message unless its hybrid signature verifies under a TRUSTED identity (trust.js);
 //   - room keys are only accepted from trusted identities, and only handed to trusted identities;
 //   - a room key that went to anyone this browser doesn't trust is replaced before the next message is sent;
-//   - keys live in this tab's memory only; locking (button, /lock, 15 minutes idle) reloads the page, which wipes them.
+//   - keys are used from this tab's memory; locking (button, /lock, 15 minutes idle) reloads the page, which wipes them.
+//     A browser the person chose to keep keys in also holds them in its key store (keystore.js, sealed to this browser
+//     AND the passphrase), so the server can delete its copies (history.js, PROTOCOL.md §10).
 import * as C from "./crypto.js";
+import * as K from "./keystore.js";
+import { KeyHistory, LEFTOVER_WARNING } from "./history.js";
 import { api, poll, setAsk, SELFTEST } from "./api.js";
 import * as G from "./gate.js";
 import { evaluate } from "./trust.js";
@@ -65,6 +69,8 @@ async function start() {
     if (pinned) r.anchorFp = pinned;
   }
   S.me = { id: r.id, fp: r.fp, anchorFp: r.anchorFp };
+  try { S.store = await chooseStore(st.me.user, r.master); }
+  catch (e) { S.store = null; write("This browser's key store couldn't be opened (" + e.message + "): this session keeps nothing.\n", "bad"); }
   r.pass = null;
   if (r.master) r.master.fill(0);
   $("gate").hidden = true;
@@ -74,6 +80,15 @@ async function start() {
   await applyState(await api("state"));
   S.lastSeq = S.st.last_seq;
   S.rev = S.st.dir_rev;
+  S.hist = new KeyHistory(historyHost());
+  if (S.store) {
+    try { await S.hist.enroll(); }
+    catch (e) { fail("Couldn't add this browser to your devices: " + e.message + ". Its keys are used for this session only."); S.store = null; }
+    // A fresh prekey before any room opens, so the first key after unlocking is per-device too; erasing expired
+    // ones waits for the import below
+    if (S.store) await publishPrekey(false);
+  } else sys("This session keeps no room keys in this browser. It reads what the server still holds for you; your other devices hold the rest.");
+  S.hist.onState();
   const first = [...S.rooms.values()].sort(roomOrder)[0];
   if (first) await openRoom(first.id);
   else sys("No rooms yet. Create one with the + next to ROOMS, or type /help.");
@@ -82,6 +97,50 @@ async function start() {
   watchIdle();
   pollLoop();
   $("input").focus();
+  if (S.store) {
+    // Hold every key this browser can open (so the server can delete its copies), then apply each room's window
+    await S.hist.importAll((id) => { const R = S.rooms.get(id); return R ? loadEpochs(R) : null; });
+    for (const x of await S.hist.applyWindow()) { const R = S.rooms.get(x.room); if (R) { R.keys.delete(x.epoch); R.expired.add(x.epoch); } }
+    await publishPrekey(true);
+  }
+}
+
+async function publishPrekey(erase) {
+  try { await S.hist.prekeys(erase); } catch (e) { warn("Couldn't publish this browser's prekey (" + e.message + "): new room keys use compatibility mode until it's done."); }
+}
+
+// Keep room keys in this browser? Asked once per person per browser; "this session only" stores nothing.
+async function chooseStore(user, master) {
+  if (await K.hasInstall(user)) return K.openStore(user, master, false);
+  const v = await dialog("Keep room keys in this browser?", (b) => b.append(
+    el("p", { text: "Room keys live on your devices, not on the server. If this is your own computer, keep them here: this browser reads your history, and new devices you add can get it from this one once you approve them." }),
+    el("p", { text: "On a shared or public computer choose \"This session only\": nothing is stored, and this tab reads only what the server still holds for you." })),
+    [{ label: "This session only", value: "no" }, { label: "Keep them here", cls: "primary", value: "yes" }]);
+  if (v !== "yes") return null;
+  const s = await K.openStore(user, master, true);
+  if (!s) write("This browser can't keep keys (a private window, or storage is blocked): this session keeps nothing.\n", "bad");
+  return s;
+}
+
+function historyHost() {
+  return {
+    api, st: () => S.st, trusted, refresh,
+    get store() { return S.store; }, set store(v) { S.store = v; },
+    me: { id: S.me.id, fp: S.me.fp, user: S.st.me.user },
+    room: (id) => (S.rooms.get(id) || {}).info,
+    say: { sys: (t) => sys(t), warn: (t) => warn(t), ok: (t) => ok(t), fail: (t) => fail(t) },
+    confirm: (title, lines, buttons) => dialog(title, (b) => lines.forEach((t) => b.append(el("p", { text: t }))), buttons),
+    onKeys: async () => { for (const R of S.rooms.values()) resetRoom(R); if (S.cur) await openRoom(S.cur); },
+    onRemoved: () => { for (const R of S.rooms.values()) { R.keys.forEach((k) => k.fill(0)); R.keys.clear(); } },
+    openAll: () => S.hist.importAll((id) => { const R = S.rooms.get(id); return R ? loadEpochs(R) : null; }),
+  };
+}
+
+// Show a room again from the start (after new keys arrived from another device).
+function resetRoom(R) {
+  [...R.view.children].forEach((n) => n.remove());
+  R.seqs.clear(); R.msgIds.clear(); R.epochTried.clear(); R.oldest = Infinity; R.loaded = false; R.loading = null;
+  M.init(R);
 }
 
 function setBadge(ok) {
@@ -107,7 +166,7 @@ async function applyState(st) {
     if (!R) {
       R = { id: info.id, info, keys: new Map(), hashes: new Map(), headers: new Map(), untrusted: new Set(), loaded: false,
             loading: null, queue: [], seqs: new Set(), oldest: Infinity, more: false, unread: 0, chain: Promise.resolve(),
-            view: el("div", { cls: "room-view", hidden: true }), epochTried: new Set(), msgIds: new Set() };
+            view: el("div", { cls: "room-view", hidden: true }), epochTried: new Set(), msgIds: new Set(), expired: new Set() };
       M.init(R);
       $("log").append(R.view);
       S.rooms.set(info.id, R);
@@ -119,6 +178,7 @@ async function applyState(st) {
   renderTopic();
   renderStatus();
   maybeAutoRotate();
+  if (S.hist) S.hist.onState();                 // device lists and history sync (not awaited: it can ask the person)
 }
 
 function label(R) {
@@ -166,8 +226,9 @@ function renderTopic() {
     el("span", { cls: "key", title: "The room's current key (epoch). Every member it was made for is listed in its signed header.", text: keyTxt + (i.needs_rotation ? " · renewal due" : "") }),
     el("button", { type: "button", cls: "term-btn", text: "voice", title: "Voice call (end-to-end encrypted, post-quantum)", onclick: () => startCall(R, "audio") }),
     el("button", { type: "button", cls: "term-btn", text: "video", title: "Video call (end-to-end encrypted, post-quantum)", onclick: () => startCall(R, "video") }),
-    el("button", { type: "button", cls: "term-btn", text: "members", onclick: () => membersDialog(R) }),
-    i.kind === "room" && (i.my_role === "admin" || S.st.me.owner) ? el("button", { type: "button", cls: "term-btn", text: "settings", onclick: () => settingsDialog(R) }) : null);
+    el("button", { type: "button", cls: "term-btn", text: "members", onclick: () => membersDialog(R) }));
+  if (i.kind === "room" && (i.my_role === "admin" || S.st.me.owner))   // append(null) would show the text "null"
+    box.append(el("button", { type: "button", cls: "term-btn", text: "settings", onclick: () => settingsDialog(R) }));
   $("prompt-label").textContent = "";
   $("prompt-label").append(el("span", { cls: "user", text: S.st.me.user }), el("span", { cls: "host", text: "@cipherchat:" }), label(R) + "$");
 }
@@ -223,7 +284,7 @@ async function openRoom(id) {
 async function loadRoom(R) {
   try {
     await loadEpochs(R);
-    const res = await api("rooms/" + R.id + "/items");
+    const res = await api("rooms/" + R.id + "/items" + devQ("?"));
     R.more = res.more;
     const more = el("button", { type: "button", cls: "term-btn log-more", text: "load older messages", hidden: !res.more, onclick: () => loadOlder(R, more) });
     R.view.prepend(more);
@@ -241,7 +302,7 @@ async function loadRoom(R) {
 async function loadOlder(R, btn) {
   btn.disabled = true;
   try {
-    const res = await api("rooms/" + R.id + "/items?before=" + R.oldest);
+    const res = await api("rooms/" + R.id + "/items?before=" + R.oldest + devQ("&"));
     const top = $("log").scrollHeight - $("log").scrollTop;
     for (const it of res.items.slice().reverse()) await processItem(R, it, false, true);
     btn.hidden = !res.more;
@@ -250,27 +311,50 @@ async function loadOlder(R, btn) {
   btn.disabled = false;
 }
 
+// This browser's device id on fetches, so per-device room keys (protocol 2) come back for it
+const devQ = (sep) => (S.store ? sep + "dev=" + S.store.dev : "");
+
 async function loadEpochs(R) {
-  const res = await api("rooms/" + R.id + "/epochs");
+  // With a key store, every signed header comes back (the wrap may be gone because a device of mine holds the key)
+  const res = await api("rooms/" + R.id + "/epochs" + (S.store ? "?all=1" + devQ("&") : ""));
   for (const it of res.items) await openEpochItem(R, it, false);
+  if (S.hist) await S.hist.flushAcks();
+  const old = S.store ? KeyHistory.leftover(res.items) : 0;
+  if (old && !R.leftoverWarned) { R.leftoverWarned = true; warn(LEFTOVER_WARNING(old), R); }
 }
 
-// Accept a room key only if a trusted identity signed it, it was made for MY current identity, and its commitment
-// matches. Note anyone it went to whom this browser doesn't trust: that key won't be used to send.
+// Accept a room key only if a trusted identity signed it, it was made for MY current identity (or this device already
+// holds it), and its commitment matches. Note anyone it went to whom this browser doesn't trust: that key won't be
+// used to send. A key opened from its wrap is kept and acknowledged, so the server can delete the wrap.
 async function openEpochItem(R, it, announce) {
   if (R.keys.has(it.epoch)) return true;
+  if (R.expired.has(it.epoch)) return false;
   const signer = trusted(it.from);
   if (!signer) { if (announce) warn("Ignored room key #" + it.epoch + " from " + it.from + ": that identity isn't verified.", R); return false; }
-  if (!it.body.w) return false;
+  const held = S.hist ? await S.hist.kept(R.id, it.epoch) : null;
+  if (!held && !it.body.w) {
+    // not for this device, but the next key made here must still follow on from it
+    if (!R.hashes.has(it.epoch)) { try { R.hashes.set(it.epoch, await C.headerHashOf(R.id, it, signer.pub)); } catch (e) { /* unsigned or not this room's: no link */ } }
+    return false;
+  }
   try {
-    const { key, header, raw } = await C.openEpoch(S.me.id, S.me.fp, R.id, it, signer.pub);
+    let opened = null;
+    if (held) opened = await C.checkEpoch(S.me.id, S.me.fp, R.id, it, signer.pub, held).catch(() => null);
+    if (!opened && it.body.w) opened = it.body.v === 2
+      ? await C.openEpochV2(S.me.id, S.me.fp, S.store ? S.store.dev : "", R.id, it, signer.pub, (id) => S.hist.prekeyOf(id))
+      : await C.openEpoch(S.me.id, S.me.fp, R.id, it, signer.pub);
+    if (!opened) throw new C.CryptoFail("the key this device holds doesn't match the signed header");
+    const { key, header, raw } = opened;
+    if (S.hist && S.store && !S.hist.inWindow(R.info, it.epoch, header.at)) { R.expired.add(it.epoch); return false; }
+    if (!held && S.hist) await S.hist.keep(R.id, it.epoch, key, header.at);
     R.keys.set(it.epoch, key);
     R.hashes.set(it.epoch, C.headerHash(raw));
     R.headers.set(it.epoch, header);
-    const odd = header.recipients.filter((r) => { const p = trusted(r.u); return !p || p.fp !== r.fp; });
+    // (a per-device key also names devices: one missing from that person's verified device list counts the same)
+    const odd = header.recipients.filter((r) => { const p = trusted(r.u); return !p || p.fp !== r.fp || (header.v === 2 && !S.hist.deviceListed(r.u, r.dev)); });
     if (odd.length) {
       R.untrusted.add(it.epoch);
-      warn("Room key #" + it.epoch + " was also given to identities you can't verify: " + odd.map((r) => r.u).join(", ") + ". It will be replaced before you send.", R);
+      warn("Room key #" + it.epoch + " was also given to identities or devices you can't verify: " + [...new Set(odd.map((r) => r.u))].join(", ") + ". It will be replaced before you send.", R);
     }
     const prev = R.hashes.get(it.epoch - 1);
     if (it.epoch > 1 && prev && header.prev !== prev) warn("Room key #" + it.epoch + " doesn't follow on from key #" + (it.epoch - 1) + " (key history was altered).", R);
@@ -294,7 +378,8 @@ async function handle(R, it, live, older) {
     let key = R.keys.get(it.epoch);
     if (!key && !R.epochTried.has(it.epoch)) { R.epochTried.add(it.epoch); await loadEpochs(R).catch(() => {}); key = R.keys.get(it.epoch); }
     const who = trusted(it.from);
-    if (!key) return place(R, line("warn", it.at, it.from, "[encrypted with room key #" + it.epoch + ", which wasn't made for you]"), it.seq, older);
+    if (!key && R.expired.has(it.epoch)) return place(R, line("warn", it.at, it.from, "[older than this room's history window: its key was erased from your devices]"), it.seq, older);
+    if (!key) return place(R, line("warn", it.at, it.from, "[encrypted with room key #" + it.epoch + ", which " + (S.store ? "this device doesn't hold (another of your devices can send it: /history)" : "wasn't made for you") + "]"), it.seq, older);
     if (!who) return place(R, line("warn", it.at, it.from, "[hidden: " + it.from + "'s identity isn't verified]"), it.seq, older);
     try {
       const { header, payload } = await C.openMessage(it, key, who.pub);
@@ -324,8 +409,9 @@ async function handle(R, it, live, older) {
   } else if (it.kind === "epoch") {
     const got = await openEpochItem(R, it, live);
     const h = R.headers.get(it.epoch);
-    place(R, line("sys", it.at, "--", got ? "new room key #" + it.epoch + " from " + it.from + " for " + h.recipients.map((r) => r.u).join(", ") + " (signed, ML-KEM-1024 + X25519)"
-                                            : "room key #" + it.epoch + " from " + it.from + (it.body.w ? " (not accepted)" : " (not for you)")), it.seq, older);
+    place(R, line("sys", it.at, "--", got ? "new room key #" + it.epoch + " from " + it.from + " for " + [...new Set(h.recipients.map((r) => r.u))].join(", ") + " (signed, ML-KEM-1024 + X25519)"
+                                            : "room key #" + it.epoch + " from " + it.from + (it.body.w ? " (not accepted)" : R.expired.has(it.epoch) ? " (past this room's history window)"
+                                              : S.store && h0(it).some((r) => r.u === S.st.me.user) ? " (made for you; this device doesn't hold it)" : " (not for you)")), it.seq, older);
   } else if (it.kind === "event") {
     place(R, line("srv", it.at, "server", describe(it.body)), it.seq, older);
   } else if (it.kind === "redact") {
@@ -335,6 +421,11 @@ async function handle(R, it, live, older) {
     }
   }
   if (live && S.cur === R.id) scrollDown(false);
+}
+
+// The recipients an epoch's header names (unverified: only used to word a notice, never to trust a key)
+function h0(it) {
+  try { return JSON.parse(new TextDecoder().decode(C.unb64(it.body.h))).recipients || []; } catch (e) { return []; }
 }
 
 function describe(b) {
@@ -349,8 +440,15 @@ function describe(b) {
 }
 
 // ---------------------------------------------------------------------------------------------- keys and sending
+// A per-device key (protocol 2) when every recipient device has a fresh prekey, otherwise a compatibility key (v1),
+// also when the server says someone still has an older app signed in.
 async function rotate(R, reason) {
-  for (let attempt = 0; attempt < 3; attempt++) {
+  let v1Only = false, refreshed = false;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    // the new key names the current one's header: fetch it if this device hasn't seen it yet
+    if (R.info.epoch > 0 && !R.hashes.has(R.info.epoch)) await loadEpochs(R);
+    // what's cached may be older than a prekey or a sign-out: look once more before settling for compatibility
+    if (!v1Only && !refreshed && S.store && !(await S.hist.v2Lines(R.info.eligible)).lines) { refreshed = true; await refresh(); }
     const i = R.info;
     const recips = i.eligible.map((u) => {
       const p = trusted(u);
@@ -358,16 +456,23 @@ async function rotate(R, reason) {
       return { u, fp: p.fp, pub: p.pub };
     });
     if (!recips.some((r) => r.u === S.st.me.user)) throw new Error("Your identity isn't certified yet, so you can't hold this room's key.");
-    const { pkg, key } = await C.buildEpoch(S.me.id, S.me.fp, R.id, i.epoch + 1, recips, R.hashes.get(i.epoch) || "");
+    const v2 = v1Only ? { why: "someone has an older app signed in" } : await S.hist.v2Lines(i.eligible);
+    const prev = R.hashes.get(i.epoch) || "";
+    const { pkg, key } = v2.lines ? await C.buildEpochV2(S.me.id, S.me.fp, R.id, i.epoch + 1, v2.lines, prev)
+                                  : await C.buildEpoch(S.me.id, S.me.fp, R.id, i.epoch + 1, recips, prev);
     try {
       const res = await api("rooms/" + R.id + "/epoch", { pkg });
+      const header = JSON.parse(new TextDecoder().decode(C.unb64(pkg.h)));
       R.keys.set(res.epoch, key);
       R.hashes.set(res.epoch, C.headerHash(C.unb64(pkg.h)));
-      R.headers.set(res.epoch, JSON.parse(new TextDecoder().decode(C.unb64(pkg.h))));
-      if (reason) sys("Made room key #" + res.epoch + " for " + recips.map((r) => r.u).join(", ") + " (" + reason + ").", R);
+      R.headers.set(res.epoch, header);
+      if (S.hist) { await S.hist.keep(R.id, res.epoch, key, header.at); await S.hist.flushAcks(); }
+      const how = v2.lines ? ", sealed to each of their " + v2.lines.length + " devices" : S.store ? "; compatibility mode: " + v2.why : "";
+      if (reason) sys("Made room key #" + res.epoch + " for " + recips.map((r) => r.u).join(", ") + " (" + reason + how + ").", R);
       await refresh();
       return key;
     } catch (e) {
+      if (e.data && e.data.v1) { v1Only = true; await refresh(); continue; }
       if (!(e.data && e.data.stale)) throw e;
       await refresh();
       if (!R.info.needs_rotation && R.keys.has(R.info.epoch)) return R.keys.get(R.info.epoch);
@@ -553,7 +658,7 @@ async function pollLoop() {
   let backoff = 1000;
   while (S.me) {
     try {
-      const res = await poll(S.lastSeq, S.rev, S.sig);
+      const res = await poll(S.lastSeq, S.rev, S.sig, S.store && S.store.dev);
       if (!S.online) { S.online = true; renderStatus(); OB.wake(); }
       backoff = 1000;
       if (res.dir_rev !== S.rev) { S.rev = res.dir_rev; await refresh(); }
@@ -699,8 +804,14 @@ async function settingsDialog(R) {
     const name = el("input", { cls: "term-field", maxlength: 32, value: i.name });
     const topic = el("input", { cls: "term-field", maxlength: 200, value: i.topic });
     const keep = el("select", { cls: "term-field" }, S.st.limits.retention.map((d) => el("option", { value: d, selected: d === i.retention_days, text: d ? d + " days" : "until deleted" })));
-    b.append(el("span", { cls: "gate-label", text: "Name" }), name, el("span", { cls: "gate-label", text: "Topic" }), topic, el("span", { cls: "gate-label", text: "Keep messages" }), keep);
-    return { value: () => ({ name: name.value.trim().replace(/^#/, ""), topic: topic.value, retention_days: Number(keep.value) }) };
+    const win = el("select", { cls: "term-field" }, (S.st.limits.history || [0]).map((d) => el("option", { value: d, selected: d === i.history_days, text: d ? d + " days" : "as long as messages are kept" })));
+    const sync = el("input", { type: "checkbox", checked: i.history_sync !== false });
+    b.append(el("span", { cls: "gate-label", text: "Name" }), name, el("span", { cls: "gate-label", text: "Topic" }), topic, el("span", { cls: "gate-label", text: "Keep messages" }), keep,
+      el("span", { cls: "gate-label", text: "Devices keep room keys" }), win,
+      el("label", { cls: "cap" }, [sync, " new devices may receive this room's older keys from the person's other devices"]),
+      el("p", { cls: "cap", text: "Room keys live on members' devices, not on the server. A shorter window erases older keys from every device, so older messages can't be read even from a stolen device. Without history sync, a new device reads only from the next key change." }));
+    return { value: () => ({ name: name.value.trim().replace(/^#/, ""), topic: topic.value, retention_days: Number(keep.value),
+                             history_days: Number(win.value), history_sync: sync.checked }) };
   }, [{ label: "Delete room", cls: "danger", value: "delete" }, { label: "Cancel" }, { label: "Save", cls: "primary", value: (a) => a.value() }]);
   try {
     if (v === "delete") {
@@ -733,6 +844,7 @@ const HELP = [
   "/size [+|-|0|percent]    the terminal's text size (also the Aa button, bottom right)",
   "/selftest                open the crypto self-test page",
   "/devices                 your paired devices (remove one here)",
+  "/history                 the devices that hold your room keys, this browser's key store, history sync",
   "/pair [name]             pair a CipherChat app (needs a fresh code)",
   "/addons                  add-ons and connectors (owner): create, scopes, rotate, disable, remove",
   "Enter sends, Shift+Enter is a new line. ```fences``` make code blocks.",
@@ -787,10 +899,54 @@ async function command(raw) {
     case "/repin": return repin();
     case "/reset-identity": return resetIdentity();
     case "/devices": return devicesDialog();
+    case "/history": return historyDialog();
     case "/pair": return pairDevice(rest);
     case "/addons": return S.st.me.owner ? addonsDialog() : fail("Only the owner manages add-ons.");
     default: fail("Unknown command " + cmd + ". Type /help.");
   }
+}
+
+// --------------------------------------------------------------------------------------------- key-store devices
+// The devices on your signed device list hold your room keys. Removing one stops new history going to it and lets
+// the server delete wraps it never collected; a removed browser wipes its own store the next time it's unlocked.
+async function historyDialog() {
+  let list = null;
+  try { list = await S.hist.myList(); } catch (e) { return; }
+  const seen = S.st.me.device_seen || {};
+  const v = await dialog("Devices holding your room keys", (b) => {
+    b.append(el("p", { cls: "cap", text: S.store ? "This browser keeps keys (device code " + S.store.code() + "). They're sealed to this browser and your passphrase, and never leave it except to a device you approve."
+                                             : "This session keeps no keys in this browser." }));
+    if (!list) b.append(el("p", { text: "No devices yet: the server still holds every wrapped room key for you (compatibility mode)." }));
+    for (const d of (list ? list.devices : [])) {
+      const mine = S.store && d.id === S.store.dev;
+      b.append(el("div", { cls: "member-row" }, [el("span", { cls: "who", text: d.name + (mine ? " (this browser)" : "") }),
+        el("span", { cls: "trust wait", text: seen[d.id] ? "active " + new Date(seen[d.id] * 1000).toLocaleDateString() : "not seen yet" }),
+        el("button", { type: "button", cls: "term-btn danger", text: "remove", "aria-label": "Remove " + d.name,
+                       onclick: (ev) => { ev.target.closest("dialog").close(); removeKeyDevice(list, d); } })]));
+    }
+    return {};
+  }, [{ label: "Close" }, S.store && list && list.devices.length > 1 ? { label: "Ask for history again", cls: "primary", value: "ask" } : null].filter(Boolean));
+  if (v === "ask") {
+    try { await api("sync/request", { dev: S.store.dev }); sys("Asked your other devices again. Approve it on one of them; this browser's code is " + S.store.code() + "."); }
+    catch (e) { fail(e.message); }
+  }
+}
+
+async function removeKeyDevice(list, d) {
+  const mine = S.store && d.id === S.store.dev;
+  if (!(await dialog("Remove " + d.name, (b) => b.append(el("p", { text: mine
+      ? "Remove this browser from your devices? The room keys it holds are wiped now, and older messages can only be read here again if another device sends them."
+      : "Remove " + d.name + " from your devices? It gets no more history, and wipes the keys it holds the next time it's unlocked. If it was lost or stolen, also reset your identity (/reset-identity)." })),
+    [{ label: "Cancel" }, { label: "Remove", cls: "danger", value: true }]))) return;
+  try {
+    const rest = list.devices.filter((x) => x.id !== d.id);
+    if (!rest.length) { fail("A device list needs at least one device. Keep this one, or reset your identity to start again."); return; }
+    const signed = await C.publishDevices(S.me.id, S.me.fp, list.seq + 1, rest, Date.now());
+    await api("keydevices", { list: signed });
+    if (mine) { await S.store.wipe(); S.store = null; warn("This browser's key store is wiped; this session keeps nothing from now on."); }
+    else ok(d.name + " was removed from your devices.");
+    await refresh();
+  } catch (e) { fail(e.message); }
 }
 
 // --------------------------------------------------------------------------------------------- paired devices

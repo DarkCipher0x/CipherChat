@@ -23,6 +23,8 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import systems.darkcipher.cipherchat.crypto.Canon
 import systems.darkcipher.cipherchat.crypto.CryptoFail
+import systems.darkcipher.cipherchat.crypto.DeviceEntry
+import systems.darkcipher.cipherchat.crypto.DeviceList
 import systems.darkcipher.cipherchat.crypto.Files
 import systems.darkcipher.cipherchat.crypto.Payload
 import systems.darkcipher.cipherchat.crypto.arr
@@ -33,6 +35,7 @@ import systems.darkcipher.cipherchat.crypto.safetyNumber
 import systems.darkcipher.cipherchat.crypto.str
 import systems.darkcipher.cipherchat.crypto.strOrNull
 import systems.darkcipher.cipherchat.crypto.unb64
+import systems.darkcipher.cipherchat.crypto.wipe
 import java.util.concurrent.CopyOnWriteArrayList
 import systems.darkcipher.cipherchat.crypto.Room as RoomCrypto
 
@@ -46,6 +49,8 @@ interface ChatListener {
     fun entryRemoved(room: Room, entry: Entry) {}
     /** A line for a room (or none: the current screen). */
     fun notice(room: Room?, kind: LineKind, text: String) {}
+    /** A room's log was cleared to be shown again from the start (older keys arrived from another device). */
+    fun roomReset(room: Room) {}
 }
 
 /**
@@ -53,9 +58,25 @@ interface ChatListener {
  *   - nothing is shown as a message unless its hybrid signature verifies under a TRUSTED identity ([Trust]);
  *   - room keys are only accepted from trusted identities, and only handed to trusted identities;
  *   - a room key that went to anyone this device doesn't trust is replaced before the next message is sent;
- *   - keys live in memory only; [lock] wipes them.
+ *   - room keys in memory are wiped by [lock]; the ones this phone keeps (so the server can delete its wrapped copies)
+ *     are in its [KeyStore], sealed to this phone and the passphrase ([KeyHistory]).
  */
 class ChatEngine(val api: ChatApi, val me: Me) {
+    /** This phone's key store (set before [start]); null keeps nothing. */
+    @Volatile var store: KeyStore? = null
+        private set
+    fun useStore(s: KeyStore?) { store = s }
+    internal val history = KeyHistory(this)
+    @Volatile private var histReady = false
+
+    /**
+     * Another of my devices asks for this phone's room keys: (its name, when it was added in ms, its device code).
+     * true sends, false declines, null asks again later. Unset: requests wait for a device that asks the person.
+     */
+    @Volatile var confirmSync: (suspend (String, Long, String) -> Boolean?)? = null
+    val historyChoices: List<Long> get() =
+        ((state["limits"] as? JsonObject)?.get("history") as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.longOrNull } ?: listOf(0L)
+
     private val trust = Trust()
     private val rooms = LinkedHashMap<String, Room>()
     private val gate = Any()
@@ -103,9 +124,90 @@ class ChatEngine(val api: ChatApi, val me: Me) {
         online = true
         emit { it.onlineChanged(true) }
         if (me.anchorFp == null) say(null, LineKind.WARN, "You haven't verified the owner yet, so nobody can be trusted. Compare safety numbers to pin the owner's identity.")
+        if (store != null) {
+            try { history.enroll() }
+            catch (e: Exception) {
+                if (e is CancellationException) throw e
+                if (e !is ApiException && e !is CryptoFail && e !is IllegalStateException) throw e
+                say(null, LineKind.ERR, "Couldn't add this phone to your devices: " + e.message + ". Its keys are used for this session only.")
+                store?.close()
+                store = null
+            }
+        } else say(null, LineKind.SYS, "This session keeps no room keys on this phone. It reads what the server still holds for you; your other devices hold the rest.")
+        // A fresh prekey before anything can make a room key, so the first key after unlocking is per-device too;
+        // erasing expired ones waits for the import below.
+        if (store != null) prekeysOrWarn(erase = false)
+        histReady = true
+        scope.launch { history.onState() }
         pollJob = scope.launch { pollLoop() }
         outbox.start(scope)
+        if (store != null) scope.launch {
+            importAll()
+            prekeysOrWarn(erase = true)
+        }
     }
+
+    private suspend fun prekeysOrWarn(erase: Boolean) {
+        try { history.prekeys(erase) }
+        catch (e: Exception) {
+            if (e is CancellationException) throw e
+            if (e !is ApiException && e !is CryptoFail && e !is IllegalStateException) throw e
+            say(null, LineKind.WARN, "Couldn't publish this phone's prekey (" + e.message + "): new room keys use compatibility mode until it's done.")
+        }
+    }
+
+    /** This phone's device id on fetches, so per-device room keys (protocol 2) come back for it. */
+    private fun devQ(sep: String) = store?.let { sep + "dev=" + it.dev } ?: ""
+
+    /** Opens every room's wraps once, so this phone holds (and acknowledges) every key it can and the server can
+     *  delete them; then each room's history window is applied to the keys kept here. */
+    internal suspend fun importAll() {
+        for (r in roomList) {
+            r.mutex.withLock {
+                try { loadEpochs(r) }
+                catch (e: Exception) { if (e is CancellationException) throw e; if (e !is ApiException && e !is CryptoFail) throw e }
+            }
+        }
+        history.flushAcks()
+        applyWindowNow()
+    }
+
+    private fun applyWindowNow() {
+        for ((room, epoch) in history.applyWindow()) {
+            val r = roomById(room) ?: continue
+            r.keys.remove(epoch)?.let { wipe(it) }
+            r.expired.add(epoch)
+        }
+    }
+
+    /** Older keys arrived from another of my devices: every room is shown again from the start. */
+    internal suspend fun keysArrived() {
+        for (r in roomList) {
+            r.mutex.withLock {
+                synchronized(r.timeline) { r.timeline.clear() }
+                r.seqs.clear(); r.msgIds.clear(); r.epochTried.clear(); r.msgs.clear(); r.pending.clear()
+                r.oldest = Long.MAX_VALUE
+                r.loaded = false
+                synchronized(r) { r.loading = null }
+            }
+            emit { it.roomReset(r) }
+        }
+    }
+
+    /** This phone is no longer one of my devices: its store is gone, and so are the keys in memory. */
+    internal fun storeRemoved() {
+        history.forgetPrekeys()
+        store = null
+        synchronized(gate) { for (r in rooms.values) r.wipeKeys() }
+    }
+
+    // ------------------------------------------------------------------------------------------- devices holding my keys
+    /** My signed device list (null in compatibility mode: no device has joined yet). */
+    fun keyDevices(): DeviceList? = history.myList()
+    val deviceSeen: Map<String, Long> get() =
+        ((state["me"] as? JsonObject)?.get("device_seen") as? JsonObject)?.mapNotNull { (k, v) -> (v as? JsonPrimitive)?.longOrNull?.let { k to it } }?.toMap() ?: emptyMap()
+    suspend fun askHistoryAgain() = history.askAgain()
+    suspend fun removeKeyDevice(list: DeviceList, d: DeviceEntry) = history.remove(list, d)
 
     suspend fun refresh() = applyState(api.call("state"))
 
@@ -126,11 +228,12 @@ class ChatEngine(val api: ChatApi, val me: Me) {
             for (id in rooms.keys.filter { it !in seen }) { rooms.remove(id)?.wipeKeys() }
         }
         emit { it.roomsChanged() }
+        if (histReady) scope.launch { history.onState() }
     }
 
     internal fun trusted(user: String): Person? = people[user]?.takeIf { it.trust == TrustLevel.OK && it.pub != null }
 
-    private fun say(r: Room?, k: LineKind, text: String) {
+    internal fun say(r: Room?, k: LineKind, text: String) {
         if (r == null) { emit { it.notice(null, k, text) }; return }
         add(r, Entry(at = System.currentTimeMillis() / 1000, kind = k, who = if (k == LineKind.ERR) "!!" else "--", text = text))
     }
@@ -158,7 +261,7 @@ class ChatEngine(val api: ChatApi, val me: Me) {
     private suspend fun loadRoom(r: Room) {
         try {
             loadEpochs(r)
-            val res = api.call("rooms/" + r.id + "/items")
+            val res = api.call("rooms/" + r.id + "/items" + devQ("?"))
             r.moreHistory = res.flag("more")
             for (it in res.arr("items").filterIsInstance<JsonObject>()) handle(r, it, live = false)
             r.loaded = true
@@ -174,38 +277,64 @@ class ChatEngine(val api: ChatApi, val me: Me) {
     }
 
     suspend fun loadOlder(r: Room) {
-        val res = api.call("rooms/" + r.id + "/items?before=" + r.oldest)
+        val res = api.call("rooms/" + r.id + "/items?before=" + r.oldest + devQ("&"))
         for (it in res.arr("items").filterIsInstance<JsonObject>().reversed()) handle(r, it, live = false)
         r.moreHistory = res.flag("more")
     }
 
     private suspend fun loadEpochs(r: Room) {
-        val res = api.call("rooms/" + r.id + "/epochs")
+        // With a key store, every signed header comes back (the wrap may be gone because a device of mine holds the key)
+        val res = api.call("rooms/" + r.id + "/epochs" + if (store != null) "?all=1" + devQ("&") else "")
         for (it in res.arr("items").filterIsInstance<JsonObject>()) openEpochItem(r, it, announce = false)
+        if (store != null) history.flushAcks()
+        val old = if (store != null) KeyHistory.leftover(res.arr("items")) else 0
+        if (old > 0 && !r.leftoverWarned) { r.leftoverWarned = true; say(r, LineKind.WARN, KeyHistory.leftoverWarning(old)) }
     }
 
     /**
-     * Accept a room key only if a trusted identity signed it, it was made for MY current identity, and its commitment
-     * matches. Note anyone it went to whom this device doesn't trust: that key won't be used to send.
+     * Accept a room key only if a trusted identity signed it, it was made for MY current identity (or this phone already
+     * holds it), and its commitment matches. Note anyone it went to whom this device doesn't trust: that key won't be
+     * used to send. A key opened from its wrap is kept and acknowledged, so the server can delete the wrap.
      */
     private fun openEpochItem(r: Room, it: JsonObject, announce: Boolean): Boolean {
         val epoch = it.long("epoch")
         if (r.keys.containsKey(epoch)) return true
+        if (epoch in r.expired) return false
         val from = it.str("from")
         val signer = trusted(from)
         if (signer == null) { if (announce) say(r, LineKind.WARN, "Ignored room key #$epoch from $from: that identity isn't verified."); return false }
         val body = it.obj("body")
-        val w = body.strOrNull("w") ?: return false
+        val w = body.strOrNull("w")
+        var held = if (store != null) history.kept(r.id, epoch) else null
+        if (held == null && w == null) {
+            // not for this device, but the next key made here must still follow on from it
+            if (!r.hashes.containsKey(epoch)) try { r.hashes[epoch] = RoomCrypto.headerHashOf(r.id, epoch, from, body.str("h"), body.str("s"), signer.pub!!) }
+                catch (e: CryptoFail) { }
+            return false
+        }
         return try {
-            val o = RoomCrypto.openEpoch(me.id, me.fp, r.id, epoch, from, body.str("h"), body.str("s"), w, signer.pub!!)
+            var o: RoomCrypto.Opened? = null
+            if (held != null) {
+                o = try { RoomCrypto.checkEpoch(r.id, epoch, from, body.str("h"), body.str("s"), signer.pub!!, held) }
+                    catch (e: CryptoFail) { wipe(held); held = null; null }
+            }
+            if (o == null && w != null) o =
+                if (body.longOrNull("v") == 2L) RoomCrypto.openEpochV2(me.id, me.fp, store?.dev ?: "", r.id, epoch, from, body.str("h"), body.str("s"), w, signer.pub!!) { id -> history.prekeyOf(id) }
+                else RoomCrypto.openEpoch(me.id, me.fp, r.id, epoch, from, body.str("h"), body.str("s"), w, signer.pub!!)
+            if (o == null) throw CryptoFail("the key this phone holds doesn't match the signed header")
+            val at = o.header.longOrNull("at") ?: 0
+            if (store != null && !KeyHistory.inWindow(r.info, epoch, at)) { wipe(o.key); r.expired.add(epoch); return false }
+            if (held == null && store != null) history.keep(r.id, epoch, o.key, at)
             r.keys[epoch] = o.key
             r.hashes[epoch] = RoomCrypto.headerHash(o.raw)
             r.headers[epoch] = o.header
+            // (a per-device key also names devices: one missing from that person's verified device list counts the same)
+            val v2 = o.header.longOrNull("v") == 2L
             val odd = o.header.arr("recipients").filterIsInstance<JsonObject>()
-                .filter { x -> trusted(x.str("u"))?.fp != x.str("fp") }.map { x -> x.str("u") }
+                .filter { x -> trusted(x.str("u"))?.fp != x.str("fp") || (v2 && !history.deviceListed(x.str("u"), x.str("dev"))) }.map { x -> x.str("u") }.distinct()
             if (odd.isNotEmpty()) {
                 r.untrusted.add(epoch)
-                say(r, LineKind.WARN, "Room key #$epoch was also given to identities you can't verify: " + odd.joinToString(", ") + ". It will be replaced before you send.")
+                say(r, LineKind.WARN, "Room key #$epoch was also given to identities or devices you can't verify: " + odd.joinToString(", ") + ". It will be replaced before you send.")
             }
             val prev = r.hashes[epoch - 1]
             if (epoch > 1 && prev != null && o.header.strOrNull("prev") != prev)
@@ -244,7 +373,11 @@ class ChatEngine(val api: ChatApi, val me: Me) {
                 }
                 val who = trusted(from)
                 val key = r.keys[epoch]
-                if (key == null) { add(r, line(LineKind.WARN, from, "[encrypted with room key #$epoch, which wasn't made for you]")); return }
+                if (key == null) {
+                    add(r, line(LineKind.WARN, from, if (epoch in r.expired) "[older than this room's history window: its key was erased from your devices]"
+                        else "[encrypted with room key #$epoch, which " + (if (store != null) "this phone doesn't hold (another of your devices can send it: Settings, Devices holding your keys)" else "wasn't made for you") + "]"))
+                    return
+                }
                 if (who == null) { add(r, line(LineKind.WARN, from, "[hidden: $from's identity isn't verified]")); return }
                 val m = try {
                     val b = it.obj("body")
@@ -259,9 +392,14 @@ class ChatEngine(val api: ChatApi, val me: Me) {
                 val got = openEpochItem(r, it, live)
                 val epoch = it.long("epoch")
                 val h = r.headers[epoch]
-                val recips = if (got && h != null) h.arr("recipients").filterIsInstance<JsonObject>().joinToString(", ") { x -> x.str("u") } else ""
+                val recips = if (got && h != null) h.arr("recipients").filterIsInstance<JsonObject>().map { x -> x.str("u") }.distinct().joinToString(", ") else ""   // one name per person, however many devices
                 add(r, line(LineKind.SYS, "--", if (got) "new room key #$epoch from $from for $recips (signed, ML-KEM-1024 + X25519)"
-                    else "room key #$epoch from $from" + if (it.obj("body").strOrNull("w") != null) " (not accepted)" else " (not for you)"))
+                    else "room key #$epoch from $from" + when {
+                        it.obj("body").strOrNull("w") != null -> " (not accepted)"
+                        epoch in r.expired -> " (past this room's history window)"
+                        store != null && madeForMe(it) -> " (made for you; this phone doesn't hold it)"
+                        else -> " (not for you)"
+                    }))
             }
             "event" -> add(r, line(LineKind.SERVER, "server", describe(it.obj("body"))))
             "redact" -> {
@@ -275,6 +413,10 @@ class ChatEngine(val api: ChatApi, val me: Me) {
             }
         }
     }
+
+    private fun madeForMe(it: JsonObject): Boolean = try {
+        Canon.parseSigned(it.obj("body").str("h"), 65536).obj.arr("recipients").filterIsInstance<JsonObject>().any { x -> x.strOrNull("u") == myUser }
+    } catch (e: CryptoFail) { false }
 
     private fun remove(r: Room, seq: Long) {
         val e = synchronized(r.timeline) { r.timeline.firstOrNull { it.seq == seq }?.also { r.timeline.remove(it) } } ?: return
@@ -341,14 +483,30 @@ class ChatEngine(val api: ChatApi, val me: Me) {
     fun messageById(r: Room, id: String): ChatMessage? = r.msgs[id]
 
     // ------------------------------------------------------------------------------------------- room keys and sending
+    // A per-device key (protocol 2) when every recipient device has a fresh prekey, otherwise a compatibility key (v1),
+    // also when the server says someone still has an older app signed in.
     private suspend fun rotate(r: Room, reason: String): ByteArray {
-        repeat(3) {
+        var v1Only = false
+        var refreshed = false
+        repeat(4) {
+            // the new key names the current one's header: fetch it if this device hasn't seen it yet
+            if (r.epoch > 0 && !r.hashes.containsKey(r.epoch)) loadEpochs(r)
+            // what's cached may be older than a prekey or a sign-out: look once more before settling for compatibility
+            if (!v1Only && !refreshed && store != null && history.v2Lines(r.eligible).first == null) {
+                refreshed = true
+                refresh()
+            }
             val recips = r.eligible.map { u ->
                 val p = trusted(u) ?: throw IllegalStateException("Can't give $u the room key: " + (people[u]?.why ?: "no verified identity") + ".")
                 RoomCrypto.Recipient(u, p.fp!!, p.pub!!)
             }
             if (recips.none { it.u == myUser }) throw IllegalStateException("Your identity isn't certified yet, so you can't hold this room's key.")
-            val built = withContext(Dispatchers.Default) { RoomCrypto.buildEpoch(me.id, me.fp, r.id, r.epoch + 1, recips, r.hashes[r.epoch] ?: "") }
+            val v2 = if (v1Only) null to "someone has an older app signed in" else history.v2Lines(r.eligible)
+            val prev = r.hashes[r.epoch] ?: ""
+            val built = withContext(Dispatchers.Default) {
+                v2.first?.let { RoomCrypto.buildEpochV2(me.id, me.fp, r.id, r.epoch + 1, it, prev) }
+                    ?: RoomCrypto.buildEpoch(me.id, me.fp, r.id, r.epoch + 1, recips, prev)
+            }
             try {
                 val res = api.call("rooms/" + r.id + "/epoch", buildJsonObject {
                     put("pkg", buildJsonObject {
@@ -360,11 +518,17 @@ class ChatEngine(val api: ChatApi, val me: Me) {
                 r.keys[epoch] = built.key
                 val raw = unb64(built.pkg.h)
                 r.hashes[epoch] = RoomCrypto.headerHash(raw)
-                r.headers[epoch] = Canon.parseSigned(built.pkg.h, 65536).obj
-                say(r, LineKind.SYS, "Made room key #$epoch for " + recips.joinToString(", ") { it.u } + " ($reason).")
+                r.headers[epoch] = Canon.parseSigned(built.pkg.h, 65536, Canon.V1V2).obj
+                if (store != null) {
+                    history.keep(r.id, epoch, built.key, r.headers[epoch]?.longOrNull("at") ?: 0)
+                    history.flushAcks()
+                }
+                val how = v2.first?.let { ", sealed to each of their ${it.size} devices" } ?: if (store != null) "; compatibility mode: " + v2.second else ""
+                say(r, LineKind.SYS, "Made room key #$epoch for " + recips.joinToString(", ") { it.u } + " ($reason$how).")
                 refresh()
                 return built.key
             } catch (e: ApiException) {
+                if (e.flag("v1") && !v1Only) { wipe(built.key); v1Only = true; refresh(); return@repeat }
                 if (!e.flag("stale")) throw e
                 refresh()
                 val k = r.keys[r.epoch]
@@ -570,9 +734,14 @@ class ChatEngine(val api: ChatApi, val me: Me) {
         maybeAutoRotate(r)
     }
 
-    suspend fun updateRoom(r: Room, name: String, topic: String, retentionDays: Long) {
-        api.call("rooms/" + r.id + "/update", buildJsonObject { put("name", name.trimStart('#')); put("topic", topic); put("retention_days", retentionDays) })
+    suspend fun updateRoom(r: Room, name: String, topic: String, retentionDays: Long, historyDays: Long? = null, historySync: Boolean? = null) {
+        api.call("rooms/" + r.id + "/update", buildJsonObject {
+            put("name", name.trimStart('#')); put("topic", topic); put("retention_days", retentionDays)
+            if (historyDays != null) put("history_days", historyDays)
+            if (historySync != null) put("history_sync", historySync)
+        })
         refresh()
+        if (historyDays != null) applyWindowNow()
     }
 
     suspend fun leave(r: Room) { api.call("rooms/" + r.id + "/leave", JsonObject(emptyMap())); refresh() }
@@ -606,7 +775,7 @@ class ChatEngine(val api: ChatApi, val me: Me) {
         var backoff = 1000L
         while (scope.isActive) {
             try {
-                val res = api.poll(lastSeq, rev, sig)
+                val res = api.poll(lastSeq, rev, sig, store?.dev)
                 val signals = res["signals"] as? JsonArray
                 if (signals != null && signals.isNotEmpty()) {
                     sig = maxOf(sig, signals.filterIsInstance<JsonObject>().maxOf { it.longOrNull("sid") ?: 0 })
@@ -650,6 +819,10 @@ class ChatEngine(val api: ChatApi, val me: Me) {
             for (r in rooms.values) r.wipeKeys()
             rooms.clear()
         }
+        history.forgetPrekeys()
+        store?.close()
+        store = null
+        me.forgetStoreKey()
         me.id.destroy()
     }
 

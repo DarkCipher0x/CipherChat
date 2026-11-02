@@ -17,12 +17,17 @@ namespace CipherChat.Engine.Tests;
 /// certifies them; then they exchange text, an encrypted file, a reaction, an edit and a burn message, each side
 /// decrypting and verifying what the other sent.
 /// </summary>
+[Collection(LiveServer)]
 public class LiveServerTests
 {
-    private static string? Env(string k) => Environment.GetEnvironmentVariable(k);
+    /// <summary>Every live class runs in this one collection, one test at a time: they all sign the owner in, and an
+    /// authenticator code works once.</summary>
+    internal const string LiveServer = "live server";
+
+    internal static string? Env(string k) => Environment.GetEnvironmentVariable(k);
 
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Security", "CA5350", Justification = "RFC 6238 TOTP is defined over HMAC-SHA1")]
-    private static string Totp(string secret, int offset = 0)
+    internal static string Totp(string secret, int offset = 0)
     {
         var key = Base32(secret);
         var step = DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30 + offset;
@@ -31,6 +36,18 @@ public class LiveServerTests
         var o = h[^1] & 15;
         var n = ((h[o] & 0x7f) << 24 | h[o + 1] << 16 | h[o + 2] << 8 | h[o + 3]) % 1_000_000;
         return n.ToString("D6", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static long _ownerStep = -1;
+
+    /// <summary>The owner's code for a 30-second window no earlier sign-in here has used (a code works once, so a
+    /// second test signing the owner in within the same window waits for the next).</summary>
+    internal static async Task<string> OwnerTotpAsync()
+    {
+        long Now() => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        if (Now() / 30 <= _ownerStep) await Task.Delay(TimeSpan.FromSeconds((_ownerStep + 1) * 30 - Now() + 1));
+        _ownerStep = Now() / 30;
+        return Totp(Env("CIPHERCHAT_DEV_OWNER_TOTP")!);
     }
 
     private static byte[] Base32(string s)
@@ -42,15 +59,27 @@ public class LiveServerTests
     }
 
     // The server allows 6 sign-in attempts a minute per connection, and every test request comes through one; wait it out
-    private static async Task<T> Paced<T>(Func<Task<T>> call)
+    internal static async Task<T> Paced<T>(Func<Task<T>> call)
     {
         try { return await call(); }
         catch (ApiException e) when (e.Status == 429) { await Task.Delay(TimeSpan.FromSeconds(61)); return await call(); }
     }
 
-    private static Task<bool> Paced(Func<Task> call) => Paced(async () => { await call(); return true; });
+    internal static Task<bool> Paced(Func<Task> call) => Paced(async () => { await call(); return true; });
 
-    private static async Task Until(Func<bool> cond, string what, int seconds = 30)
+    /// <summary>Signs each session out, so none is left looking like an older app that keeps no key store (which
+    /// would put that person, often the owner, in compatibility mode for the next test).</summary>
+    internal static async Task SignOutAsync(params ChatApi?[] apis)
+    {
+        foreach (var a in apis)
+        {
+            if (a is null || !a.HasSession) continue;
+            try { await a.LogoutAsync(); }
+            catch (Exception e) when (e is ApiException or IOException or HttpRequestException or TimeoutException) { }
+        }
+    }
+
+    internal static async Task Until(Func<bool> cond, string what, int seconds = 30)
     {
         for (var i = 0; i < seconds * 10; i++) { if (cond()) return; await Task.Delay(100); }
         Assert.Fail("timed out waiting for " + what);
@@ -67,7 +96,7 @@ public class LiveServerTests
 
         // ---- the owner signs in and unlocks
         var ownerApi = new ChatApi(T(), "CipherChat/0.1 (Windows; tests)");
-        await Paced(() => ownerApi.LoginAsync(ownerUser, Env("CIPHERCHAT_DEV_OWNER_PASSWORD")!, Totp(Env("CIPHERCHAT_DEV_OWNER_TOTP")!)));
+        await Paced(async () => await ownerApi.LoginAsync(ownerUser, Env("CIPHERCHAT_DEV_OWNER_PASSWORD")!, await OwnerTotpAsync()));
         var st = await ownerApi.CallAsync("state");
         var ownerMe = await Gate.UnlockAsync(ownerApi, st, Env("CIPHERCHAT_DEV_OWNER_PASSPHRASE")!);
         Assert.NotNull(ownerMe.AnchorFp);
@@ -161,6 +190,7 @@ public class LiveServerTests
         owner.Lock();
         alice.Lock();
         await ownerApi.CallAsync("admin/users/" + user + "/delete", new JsonObject());   // tidy up the demo server
+        await SignOutAsync(ownerApi);
     }
 
     /// <summary>
@@ -177,7 +207,7 @@ public class LiveServerTests
         ITransport T() => uri.Scheme == "https" ? new PqTlsTransport(uri) : new LoopbackDevTransport(uri);
 
         var ownerApi = new ChatApi(T(), "CipherChat/0.1 (Windows; tests)");
-        await Paced(() => ownerApi.LoginAsync(Env("CIPHERCHAT_DEV_OWNER")!, Env("CIPHERCHAT_DEV_OWNER_PASSWORD")!, Totp(Env("CIPHERCHAT_DEV_OWNER_TOTP")!)));
+        await Paced(async () => await ownerApi.LoginAsync(Env("CIPHERCHAT_DEV_OWNER")!, Env("CIPHERCHAT_DEV_OWNER_PASSWORD")!, await OwnerTotpAsync()));
         var user = "pk" + Convert.ToHexString(RandomNumberGenerator.GetBytes(3)).ToLowerInvariant();
         var inv = await ownerApi.CallAsync("admin/users/invite", new JsonObject { ["username"] = user, ["role"] = "member" });
         var token = inv.Obj("link").Str("url").Split("#enrol=")[1];
@@ -217,6 +247,7 @@ public class LiveServerTests
         finally
         {
             await ownerApi.CallAsync("admin/users/" + user + "/delete", new JsonObject());   // tidy up the demo server
+            await SignOutAsync(ownerApi);
         }
     }
 }

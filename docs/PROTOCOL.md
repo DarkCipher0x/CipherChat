@@ -1,4 +1,4 @@
-# The CipherChat protocol, version 1
+# The CipherChat protocol, versions 1 and 2
 
 CipherChat by DarkCipher Systems. This is the wire and cryptographic format every client implements identically: the
 web portal (`web/app/crypto.js`, `callcrypto.js`), Windows (`windows/src/CipherChat.Crypto`) and Android
@@ -124,3 +124,98 @@ after the handshake) with the platform's certificate validation and RFC 6125 hos
 offer (current Chrome, Edge and Firefox negotiate X25519MLKEM768).
 
 Pairing code: `cipherchat:pair/v1?server=<https origin>&token=<43-char one-time token>` (older `dcxchat:` accepted).
+
+## 10. Devices, the key store and history (protocol 1.1)
+
+Room keys stop living on the server: each device keeps the ones it has opened and the server deletes the wraps
+(PREKEYS-DESIGN.md phase 1). Epochs (§5) are unchanged. A person with no device list is in **compatibility mode**
+and keeps today's behaviour.
+
+**Device key.** Every device that keeps room keys (an app install, a browser *installation*) makes a random
+16-hex device id and a random ML-KEM-1024 + X25519 key pair (not derived from the master). Its private part never
+leaves the device.
+
+**Device list**, published by any of the person's devices (`b` = base64 of canonical JSON, `s` = `sign(id,
+"dcx-chat/v1/devices", raw)`): `{"v":1,"t":"devices","user","fp","seq":n,"at":ms,"devices":[{"id","name","kem_pq",
+"kem_ec","added":ms}]}`, devices sorted by id, at most 16, names 1–40 characters. `fp` is the publisher's current
+identity fingerprint, `seq` starts at 1 and grows by exactly one per change. Clients accept a list only if it
+verifies against the person's trusted identity, `fp` is that identity's, and `seq` is not lower than the last one
+they saw (no rollback). A device that appears or disappears is shown to the person's other devices and to everyone
+who shares a room with them.
+
+**Key store.** Room keys are stored on the device as `aesSeal(deviceKey, aesSeal(storeKey, key, aad), aad)` with
+`aad = "dcx-chat/v1/store|" ‖ user ‖ "|" ‖ room ‖ "|" ‖ epoch`, where `storeKey = hkdf32(master, user,
+"dcx-chat/v1/store-key")` and `deviceKey` never leaves the device: in the web chat a non-extractable WebCrypto key
+in IndexedDB; in the apps a random 32-byte key inside the store file, which the platform seals as a whole (Windows
+DPAPI for that Windows account, a non-exportable Android Keystore key that only works while the phone is unlocked;
+the Secure Enclave/Keychain on Apple). The device key pair's seed is kept the same way, as room `device`, epoch 0.
+Opening a stored key needs both the device and the unlocked identity. The store is never uploaded, synced to a cloud
+or included in a backup.
+
+**Acknowledgement.** After a device has stored room keys it sends `POST rooms/<id>/ack {"dev","epochs":[n,…]}`.
+The server deletes a person's wrap of epoch *n* once every device on their list has acknowledged it, or when the
+wrap is 7 days old, whichever is first, but only while every phone or PC paired to that account has a listed device
+(so an app that predates this release keeps its wraps). Epoch headers and signatures are kept, so the `prev` chain
+and commitments can still be checked: `GET rooms/<id>/epochs?all=1` returns every header, with `w` null where the
+wrap is gone.
+
+**History window.** A room setting `history_days` (0 = as long as the room keeps messages, or 7, 30, 90, 365), set
+by its admins. Devices erase stored keys whose epoch header `at` is older than the window (never the current epoch).
+A second setting `history_sync` (default on) allows new devices to receive the room's older keys.
+
+**History sync.** A new device asks with `POST sync/request {"dev"}`. One of the person's other devices shows the
+request with the new device's name and its **device code** (first 16 hex of SHA3-256(kem_pq ‖ kem_ec), in groups of
+four, shown on both devices), and on approval sends one or more sealed packages (each blob at most 192 KiB, split
+by room; the last one sent with `"last": true`, which closes the request):
+
+* payload `{"v":1,"t":"key-sync","user","from","to","at","keys":[{"room","epoch","key":b64}]}` (canonical),
+  only rooms with `history_sync` on and only keys inside each room's window;
+* `p = canon(payload)`, `s = sign(id, "dcx-chat/v1/key-sync", p)`, `k` = random 32 bytes,
+  `aad = "dcx-chat/v1/key-sync|" ‖ user ‖ "|" ‖ from ‖ "|" ‖ to`;
+* blob = `wrap(k, targetDevice, aad) ‖ aesSeal(k, u32(len(p)) ‖ p ‖ s, aad)`, base64, uploaded with
+  `POST sync/send {"to","from","blob","last"}`.
+
+The new device fetches it (`GET sync?dev=`), unwraps with its device key, checks the signature against its own
+identity, then accepts each key only if its epoch header verifies and the header's `commit` matches the key; it
+stores them, acknowledges, and confirms with `POST sync/done {"id"}`, after which the server deletes the package.
+Unfetched packages and requests are deleted after 7 days. The server never makes a wrap or a package itself.
+
+## 11. Device prekeys and per-device room keys (protocol 2)
+
+Phase 2 of PREKEYS-DESIGN.md: a room key is wrapped to each recipient **device's** short-lived prekey instead of to
+the person's identity, so a stolen identity secret opens no stored room key, and a stolen device stops opening new
+ones within a prekey's lifetime. Everything in §10 stays (device list, key store, acknowledgement, history sync).
+
+**Prekeys.** Each device makes random ML-KEM-1024 + X25519 key pairs (a 96-byte seed each, as for the device key;
+never derived from the master) and publishes them, signed by the identity (`s = sign(id, "dcx-chat/v2/prekey", raw)`):
+`{"v":2,"t":"prekey","user","fp","dev","id":16 hex,"at":ms,"exp":ms,"kem_pq","kem_ec"}` with `exp = at + 7 days`.
+A device publishes a new prekey when its newest is a day old (`POST keydevices/prekey {"dev","prekey":{"b","s"}}`;
+the server keeps the newest four per device and drops expired ones and those of devices that leave the list). The
+prekey's seed is kept in the device's key store (as room `prekey:<id>`, epoch 0) and **erased when the prekey
+expires**, after the device has opened and stored every room key wrapped to it. The directory lists each person's
+current prekeys (`"prekeys": [{"b","s"}]`).
+
+A client accepts someone's prekey only if it verifies against their trusted identity, `fp` is that identity's, `dev`
+is on their trusted device list, `exp − at` is at most 8 days and `exp` is still at least an hour away.
+
+**Epoch v2.** Header `{"v":2,"t":"epoch","room","epoch":n,"by","by_fp","at","prev","recipients":[{"u","fp","dev",
+"prekey","w"}],"commit"}`, recipients sorted by `u` then `dev`, signed `dcx-chat/v2/epoch`; `prev` and `commit` as
+in §5. A device that can't open epoch n−1 (it was sealed to other devices, or made before this one joined) still
+checks that header's signature against its trusted maker and names its hash as `prev`. One `wrap(key, prekey, "dcx-chat/v2/wrap|room|n|u|fp|dev|prekey")` per recipient device, to that device's
+newest acceptable prekey; the package's `w` maps `"u|dev"` to the wrap. A device accepts the key only if the header
+verifies against the trusted maker, its own line names its current fingerprint, device id and one of its own
+prekeys, the wrap hash and the commitment match. Every member's **every listed device** must have a line: the server
+refuses the epoch unless each recipient's devices equal their current device list and each prekey id is one it
+holds for that device.
+
+**Choosing v1 or v2.** A client makes a v2 epoch only when every recipient has a trusted device list, every listed
+device has an acceptable prekey, the server's directory says the person has no older app signed in (`"v2": true`),
+and there are at most 64 recipient devices. Otherwise it makes a v1 epoch (§5, deleted after acknowledgement as in
+§10) and says the room key is in compatibility mode. The server refuses a v2 epoch for anyone with an older app
+signed in (`409`, `"v1": true`), and the client then makes a v1 one. A room whose current key is v2 reports
+`needs_rotation` when a recipient's devices change, and also while a recipient has an older app signed in (that app
+can't open a v2 key), so the next sender makes a v1 key; a v1 key ends both.
+
+**Fetching and deleting.** `GET rooms/<id>/epochs?dev=<id>` returns, for v2 epochs, the wrap for that device (or
+`w` null); v1 epochs are unchanged. A v2 wrap is deleted as soon as its device acknowledges the epoch, or after 7
+days. History sync (§10) is unchanged and carries v1 and v2 keys alike; `checkEpoch` accepts both header versions.

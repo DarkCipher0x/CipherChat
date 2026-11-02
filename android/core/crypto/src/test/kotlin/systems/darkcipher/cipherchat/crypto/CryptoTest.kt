@@ -95,5 +95,16 @@ class CryptoTest {
         refuses("another sender") { Room.openMessage(room, 1, "dcx-admin", m.h, m.c, m.s, built.key, oPub) }
         refuses("the wrong room key") { Room.openMessage(room, 1, "alice", m.h, m.c, m.s, random(32), aPub) }
         refuses("another epoch") { Room.openMessage(room, 2, "alice", m.h, m.c, m.s, built.key, aPub) }
+
+        // a header this device can't open still gives the hash the next key names as "prev", once its signature checks out
+        val prev = Room.headerHashOf(room, 1, "dcx-admin", built.pkg.h, built.pkg.s, oPub)
+        assertEquals(Room.headerHash(got.raw), prev)
+        val next = Room.buildEpoch(alice, a.fp, room, 2, listOf(Room.Recipient("alice", a.fp, aPub)), prev)
+        assertEquals(prev, Room.openEpoch(alice, a.fp, room, 2, "alice", next.pkg.h, next.pkg.s, next.pkg.w["alice"], aPub).header.str("prev"))
+        refuses("a header signed by another identity") { Room.headerHashOf(room, 1, "dcx-admin", built.pkg.h, built.pkg.s, aPub) }
+        refuses("a header replayed into another room") { Room.headerHashOf("fedcba9876543210", 1, "dcx-admin", built.pkg.h, built.pkg.s, oPub) }
+        refuses("a header as another epoch") { Room.headerHashOf(room, 2, "dcx-admin", built.pkg.h, built.pkg.s, oPub) }
+        val bad = unb64(built.pkg.s).also { it[10] = (it[10].toInt() xor 1).toByte() }
+        refuses("a header with a changed signature") { Room.headerHashOf(room, 1, "dcx-admin", built.pkg.h, b64(bad), oPub) }
     }
 }

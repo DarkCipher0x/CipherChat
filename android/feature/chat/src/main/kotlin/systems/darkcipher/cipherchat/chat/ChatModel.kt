@@ -75,9 +75,24 @@ class ChatModel(val engine: ChatEngine, val host: ChatHost) {
         override fun entryChanged(room: Room, entry: Entry) { scope.launch { if (room === this@ChatModel.room) entryRev++ } }
         override fun entryRemoved(room: Room, entry: Entry) { scope.launch { if (room === this@ChatModel.room) timeline.remove(entry) } }
         override fun notice(room: Room?, kind: LineKind, text: String) { scope.launch { banner = kind to text } }
+        override fun roomReset(room: Room) { scope.launch { if (room === this@ChatModel.room) open(room) } }
     }
 
-    init { engine.addListener(listener) }
+    init {
+        engine.addListener(listener)
+        // Another of my devices asks for the keys this phone holds: approve only when it shows the same code.
+        // Cancelling is "not now" (asked again later), never a silent decline.
+        engine.confirmSync = { name, added, code ->
+            withContext(Dispatchers.Main) {
+                val day = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(java.util.Date(added))
+                if (host.prompts.confirm("Send history to a new device?",
+                        "\"$name\" (added $day) is asking for the room keys this phone holds, so it can read older messages.\n\n" +
+                        "Approve only if it's your own device and it shows this code:\n\n$code\n\n" +
+                        "Rooms whose admins turned history sync off aren't included, and nothing older than each room's history window.",
+                        ok = "Approve")) true else null
+            }
+        }
+    }
 
     private fun resync() {
         val r = room ?: return
@@ -120,6 +135,7 @@ class ChatModel(val engine: ChatEngine, val host: ChatHost) {
 
     fun dispose() {
         engine.removeListener(listener)
+        engine.confirmSync = null
         engine.viewing = null
         thumbs.evictAll()
         scope.cancel()

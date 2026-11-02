@@ -20,6 +20,28 @@ on the server with Argon2id and a server key share, so neither the server nor so
 open them. Every device unlocks with the same passphrase. **It can't be recovered**: if you lose it, you start over
 with new keys and can't read your old messages.
 
+**Room keys stay on your devices.** Each app (and each browser you choose to keep keys in) holds the room keys it
+has opened in its own key store, sealed to that device and to your passphrase, and the server then deletes its
+copies. That way someone who later gets hold of your keys can't open your old messages from the server.
+
+* The web chat asks once per browser: **keep room keys in this browser**, or **this session only** (nothing kept; a
+  private window is always "this session only").
+* A **new device** (a new phone or PC, a browser you haven't used) has no older keys. Another of your devices shows
+  "Send history to a new device?" with a **device code**: approve only if the new device shows the same code. Rooms
+  whose admins turned history sync off aren't included.
+* **Devices holding your room keys**: web `/history`, Windows Settings → Devices holding your keys…, Android
+  Settings → Devices holding your room keys. Each device shows when it was last active; remove one you no longer use
+  (it gets no more history and wipes what it holds the next time it's unlocked), or ask your other devices for history
+  again.
+* **Each new room key is sealed to every device separately**, using a short-lived key each device makes daily and
+  erases after a week. When a room says a key was made in **compatibility mode**, one of the members (maybe you) has
+  an older CipherChat app or a "this session only" browser signed in, or a device that hasn't been opened for a week:
+  update or remove it, or open that device. Messages are just as encrypted either way; compatibility mode only means
+  someone who later steals that person's identity could open that key.
+* If a room says **the server still holds copies of this room's keys** that are more than 7 days old, check for an
+  older CipherChat app of yours that's still signed in or paired, and update or remove it. If there's none, the server
+  isn't deleting them as it should: tell its owner.
+
 ## 3. Trust: one safety number, once
 
 The owner is the chat's trust anchor. Compare the 60-digit **safety number** with the owner — in person or on a call
@@ -30,7 +52,9 @@ didn't certify, the owner's key itself), you get a warning and those messages ar
 ## 4. Rooms and messages
 
 * **Rooms** have members and admins; **direct messages** are between two people. Admins add or remove people, rename
-  the room and set how long messages are kept (1 day to a year, or until deleted).
+  the room and set how long messages are kept (1 day to a year, or until deleted). They also set how far back
+  members' devices keep the room's keys (7 to 365 days, or as long as the messages), and whether new devices may get
+  older messages from members' other devices.
 * Each room has its own key; it's renewed when people join or leave (so newcomers can't read the past and leavers
   can't read the future), weekly, and on request.
 * Reply, react, edit your own messages, delete (yours, or any as an admin). `/me` writes an action line.
@@ -77,7 +101,7 @@ small window when you leave the app.
 ## 6. Keeping it safe
 
 * Lock the app when you leave it (it also locks itself after a while). Locking wipes every key from memory.
-* Remove devices you no longer use (Settings → Paired devices).
+* Remove devices you no longer use (Settings → Paired devices, and from the devices holding your room keys).
 * If you're warned that a key changed, ask the person (or the owner) on a call before trusting it again.
 * The owner: keep the server key backed up offline, keep the server up to date, and certify people only after
   comparing safety numbers.

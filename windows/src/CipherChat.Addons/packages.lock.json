@@ -16,7 +16,7 @@
       "cipherchat.api": {
         "type": "Project",
         "dependencies": {
-          "CipherChat.Transport": "[0.1.2, )"
+          "CipherChat.Transport": "[0.2.0, )"
         }
       },
       "cipherchat.crypto": {
@@ -28,8 +28,8 @@
       "cipherchat.engine": {
         "type": "Project",
         "dependencies": {
-          "CipherChat.Api": "[0.1.2, )",
-          "CipherChat.Crypto": "[0.1.2, )"
+          "CipherChat.Api": "[0.2.0, )",
+          "CipherChat.Crypto": "[0.2.0, )"
         }
       },
       "cipherchat.transport": {

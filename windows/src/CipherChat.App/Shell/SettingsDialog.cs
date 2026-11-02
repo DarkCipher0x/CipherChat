@@ -44,6 +44,7 @@ public static class SettingsDialog
         }
         Btn("Change chat passphrase…", () => ChangePassphrase(w));
         Btn("Paired devices…", () => Devices(w));
+        Btn("Devices holding your keys…", () => KeyDevices(w));
         Btn("Sign out", () => w.Run(async () => { d.Win.Close(); await s.SignOutAsync(forgetPc: false); w.ShowConnect(); }));
         Btn("Forget this PC…", () =>
         {
@@ -52,7 +53,7 @@ public static class SettingsDialog
         }, "DangerButton");
 
         d.Text("ABOUT", "Label");
-        d.Text("CipherChat 0.1.2 for Windows, by DarkCipher Systems. " + Hybrid.Suite + "; TLS 1.3 with X25519MLKEM768 only. Self-test: " +
+        d.Text("CipherChat 0.2.0 for Windows, by DarkCipher Systems. " + Hybrid.Suite + "; TLS 1.3 with X25519MLKEM768 only. Self-test: " +
                s.SelfTestResults.Count + "/" + s.SelfTestResults.Count + " checks passed (OpenSSL known answers).", "Caption");
 
         d.Cancel("Close");
@@ -113,4 +114,54 @@ public static class SettingsDialog
         d.Button("Close", () => true, "PrimaryButton", isDefault: true);
         d.Show();
     });
+
+    // The devices on your signed device list hold your room keys. Removing one stops new history going to it and lets the
+    // server delete wraps it never collected; a removed device wipes its own store the next time it's unlocked.
+    private static void KeyDevices(MainWindow w)
+    {
+        var e = w.Session.Engine!;
+        DeviceList? list;
+        try { list = e.KeyDevices(); } catch (CryptoFail) { return; }
+        var seen = e.DeviceSeen;
+        var d = Dialogs.New(w, "Devices holding your room keys", 540);
+        d.Text(e.Store is { } st ? "This PC keeps keys (device code " + st.Code() + "). They're sealed to this PC and your passphrase, and never leave it except to a device you approve."
+                                 : "This session keeps no keys on this PC.", "Caption");
+        if (list is null) d.Text("No devices yet: the server still holds every wrapped room key for you (compatibility mode).");
+        foreach (var dev in list?.Devices ?? [])
+        {
+            var mine = e.Store is { } s && dev.Id == s.Dev;
+            var dock = d.Add(new DockPanel { Margin = new Thickness(0, 0, 0, 6) });
+            var rm = new Button { Content = "Remove" };
+            rm.SetResourceReference(FrameworkElement.StyleProperty, "DangerButton");
+            rm.Click += (_, _) =>
+            {
+                if (!Dialogs.Confirm(w, "Remove " + dev.Name, mine
+                        ? "Remove this PC from your devices? The room keys it holds are wiped now, and older messages can only be read here again if another device sends them."
+                        : "Remove " + dev.Name + " from your devices? It gets no more history, and wipes the keys it holds the next time it's unlocked. If it was lost or stolen, also reset your identity.",
+                        "Remove", true)) return;
+                w.Run(async () => { d.Win.Close(); await e.RemoveKeyDeviceAsync(list!, dev); });
+            };
+            DockPanel.SetDock(rm, Dock.Right);
+            dock.Children.Add(rm);
+            var when = seen.TryGetValue(dev.Id, out var at) ? "active " + DateTimeOffset.FromUnixTimeSeconds(at).ToLocalTime().ToString("d MMM yyyy", System.Globalization.CultureInfo.CurrentCulture) : "not seen yet";
+            dock.Children.Add(new TextBlock { Text = dev.Name + (mine ? " (this PC)" : "") + "   " + when, VerticalAlignment = VerticalAlignment.Center });
+        }
+        if (e.Store is not null && list is { Devices.Count: > 1 }) d.Button("Ask for history again", () => "ask");
+        d.Button("Close", () => true, "PrimaryButton", isDefault: true);
+        if (d.Show() is "ask") w.Run(e.AskHistoryAgainAsync);
+    }
+
+    /// <summary>Another of my devices asks for this PC's room keys. True sends, false declines, null = not now.</summary>
+    public static bool? ConfirmSync(MainWindow w, string name, DateTimeOffset added, string code)
+    {
+        var d = Dialogs.New(w, "Send history to a new device?", 480);
+        d.Text("\"" + name + "\" (added " + added.ToString("g", System.Globalization.CultureInfo.CurrentCulture) + ") is asking for the room keys this PC holds, so it can read older messages.");
+        d.Text("Approve only if it's your own device and it shows this code:", "Caption");
+        d.Text(code, "Label");
+        d.Text("Rooms whose admins turned history sync off aren't included, and nothing older than each room's history window.", "Caption");
+        d.Button("Decline", () => "no", "DangerButton");
+        d.Cancel("Not now");
+        d.Button("Approve", () => "yes", "PrimaryButton");
+        return d.Show() switch { "yes" => true, "no" => false, _ => null };
+    }
 }

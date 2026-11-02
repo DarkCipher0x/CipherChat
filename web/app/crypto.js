@@ -77,12 +77,12 @@ export function canon(v) {
   throw new CryptoFail("unsignable value");
 }
 export const canonBytes = (v) => utf8(canon(v));
-export function parseSigned(b64str, maxLen) {
+export function parseSigned(b64str, maxLen, versions = [1]) {
   const raw = unb64(b64str);
   if (raw.length > maxLen) throw new CryptoFail("too large");
   let obj;
   try { obj = JSON.parse(dec.decode(raw)); } catch (e) { throw new CryptoFail("malformed header"); }
-  if (!obj || typeof obj !== "object" || Array.isArray(obj) || obj.v !== 1) throw new CryptoFail("unsupported version");
+  if (!obj || typeof obj !== "object" || Array.isArray(obj) || !versions.includes(obj.v)) throw new CryptoFail("unsupported version");
   if (canon(obj) !== dec.decode(raw)) throw new CryptoFail("header is not canonical");
   return { raw, obj };
 }
@@ -309,6 +309,172 @@ export async function openEpoch(me, myFp, room, item, signerPub) {
   const key = await unwrapKey(wrapped, me, wrapAad(room, obj.epoch, me.user, myFp));
   if (commitOf(room, obj.epoch, key) !== obj.commit) throw new CryptoFail("room key commitment mismatch");
   return { key, header: obj, raw };
+}
+// The same checks for a room key this device already holds (its wrap may be gone from the server): the header must be
+// signed by the trusted maker, list my current identity, and commit to exactly this key. Either header version.
+export async function checkEpoch(me, myFp, room, item, signerPub, key) {
+  const { raw, obj } = parseSigned(item.body.h, 65536, [1, 2]);
+  if (obj.t !== "epoch" || obj.room !== room || obj.epoch !== item.epoch || obj.by !== item.from || obj.by !== signerPub.user || obj.by_fp !== signerPub.fp)
+    throw new CryptoFail("room key header doesn't match");
+  const label = obj.v === 2 ? "dcx-chat/v2/epoch" : "dcx-chat/v1/epoch";
+  if (!(await verify(signerPub, label, raw, unb64(item.body.s)))) throw new CryptoFail("room key signature is invalid");
+  if (!(key instanceof Uint8Array) || key.length !== 32 || commitOf(room, obj.epoch, key) !== obj.commit) throw new CryptoFail("room key commitment mismatch");
+  return { key, header: obj, raw };
+}
+// The hash of a room key's header this device can't open (sealed to other devices, or made before it joined), once its
+// signature checks out: the next key made here still names it as "prev", so the key history stays one chain.
+export async function headerHashOf(room, item, signerPub) {
+  const { raw, obj } = parseSigned(item.body.h, 65536, [1, 2]);
+  if (obj.t !== "epoch" || obj.room !== room || obj.epoch !== item.epoch || obj.by !== item.from || obj.by !== signerPub.user || obj.by_fp !== signerPub.fp)
+    throw new CryptoFail("room key header doesn't match");
+  const label = obj.v === 2 ? "dcx-chat/v2/epoch" : "dcx-chat/v1/epoch";
+  if (!(await verify(signerPub, label, raw, unb64(item.body.s)))) throw new CryptoFail("room key signature is invalid");
+  return headerHash(raw);
+}
+
+// ---------------------------------------------------------------------------------------------- prekeys and per-device room keys (PROTOCOL.md §11)
+// A prekey is a random ML-KEM-1024 + X25519 pair like the device key (same 96-byte seed, deviceFromSeed), published
+// signed for 7 days and erased by its device when it expires, so nothing the identity can rebuild opens a v2 wrap.
+export const PREKEY_LIFE_MS = 7 * 86400 * 1000;
+const PREKEY_LIFE_MAX_MS = 8 * 86400 * 1000;
+const PREKEY_MARGIN_MS = 3600 * 1000;                // an hour of life left, at least, to be used for a new room key
+export const newPrekeyId = () => hex(random(8));
+// pre: deviceFromSeed() of the prekey's seed. Returns {b, s}.
+export async function publishPrekey(id, fp, dev, pid, pre, at) {
+  const raw = canonBytes({ v: 2, t: "prekey", user: id.user, fp, dev, id: pid, at, exp: at + PREKEY_LIFE_MS,
+                           kem_pq: b64(pre.kemPq.pk), kem_ec: b64(pre.kemEc.pub) });
+  return { b: b64(raw), s: b64(await sign(id, "dcx-chat/v2/prekey", raw)) };
+}
+// Someone's prekey, checked against their trusted identity and device list (the ids on it). Returns
+// {dev, id, at, exp, kemPq, kemEc} with raw public keys.
+export async function openPrekey(entry, pub, listedIds, now = Date.now()) {
+  const { raw, obj } = parseSigned(entry.b, 4096, [2]);
+  if (obj.t !== "prekey" || obj.user !== pub.user || obj.fp !== pub.fp || !listedIds.includes(obj.dev) ||
+      typeof obj.id !== "string" || !/^[0-9a-f]{16}$/.test(obj.id) || !Number.isSafeInteger(obj.at) || !Number.isSafeInteger(obj.exp) ||
+      obj.exp - obj.at > PREKEY_LIFE_MAX_MS || obj.exp - now < PREKEY_MARGIN_MS) throw new CryptoFail("prekey doesn't match or has expired");
+  const kemPq = unb64(obj.kem_pq, SIZES.kemPq), kemEc = unb64(obj.kem_ec, SIZES.kemEc);
+  if (!(await verify(pub, "dcx-chat/v2/prekey", raw, unb64(entry.s)))) throw new CryptoFail("prekey signature is invalid");
+  return { dev: obj.dev, id: obj.id, at: obj.at, exp: obj.exp, kemPq, kemEc };
+}
+const wrapAadV2 = (room, epoch, u, fp, dev, pid) => utf8("dcx-chat/v2/wrap|" + room + "|" + epoch + "|" + u + "|" + fp + "|" + dev + "|" + pid);
+const byUserDev = (a, b) => (a.u < b.u ? -1 : a.u > b.u ? 1 : a.dev < b.dev ? -1 : a.dev > b.dev ? 1 : 0);
+// lines: [{u, fp, dev, prekey: {id, kemPq, kemEc}}], one per listed device of every recipient. Returns {pkg, key}.
+export async function buildEpochV2(me, myFp, room, epoch, lines, prev) {
+  const key = random(32);
+  const w = {}, rec = [];
+  for (const l of lines.slice().sort(byUserDev)) {
+    const wrapped = await wrapKey(key, l.prekey, wrapAadV2(room, epoch, l.u, l.fp, l.dev, l.prekey.id));
+    w[l.u + "|" + l.dev] = b64(wrapped);
+    rec.push({ u: l.u, fp: l.fp, dev: l.dev, prekey: l.prekey.id, w: hex(sha3_256(wrapped)) });
+  }
+  const raw = canonBytes({ v: 2, t: "epoch", room, epoch, by: me.user, by_fp: myFp, at: Date.now(), prev: prev || "",
+                           recipients: rec, commit: commitOf(room, epoch, key) });
+  return { pkg: { h: b64(raw), s: b64(await sign(me, "dcx-chat/v2/epoch", raw)), w }, key };
+}
+// item.body = {v: 2, h, s, w (this device's)}; prekeyOf(id) -> this device's prekey ({kemPq: {pk, sk}, kemEc}) or null.
+export async function openEpochV2(me, myFp, myDev, room, item, signerPub, prekeyOf) {
+  const { raw, obj } = parseSigned(item.body.h, 65536, [2]);
+  if (obj.t !== "epoch" || obj.room !== room || obj.epoch !== item.epoch || obj.by !== item.from || obj.by !== signerPub.user || obj.by_fp !== signerPub.fp)
+    throw new CryptoFail("room key header doesn't match");
+  if (!(await verify(signerPub, "dcx-chat/v2/epoch", raw, unb64(item.body.s)))) throw new CryptoFail("room key signature is invalid");
+  const line = (obj.recipients || []).find((r) => r.u === me.user && r.dev === myDev);
+  if (!line || line.fp !== myFp || !item.body.w) throw new CryptoFail("this room key wasn't made for this device and your current identity");
+  const pre = await prekeyOf(line.prekey);
+  if (!pre) throw new CryptoFail("this device no longer has the prekey this room key was sealed to");
+  const wrapped = unb64(item.body.w, SIZES.wrap);
+  if (hex(sha3_256(wrapped)) !== line.w) throw new CryptoFail("wrapped key doesn't match the signed header");
+  const key = await unwrapKey(wrapped, pre, wrapAadV2(room, obj.epoch, me.user, myFp, myDev, line.prekey));
+  if (commitOf(room, obj.epoch, key) !== obj.commit) throw new CryptoFail("room key commitment mismatch");
+  return { key, header: obj, raw };
+}
+
+// ---------------------------------------------------------------------------------------------- devices and history (PROTOCOL.md §10)
+// A device key is random (never derived from the master), so the identity alone can't rebuild it. Its 96-byte seed
+// (ML-KEM d‖z, then the X25519 private key) stays on the device, sealed by the key store.
+export async function deviceFromSeed(seed) {
+  if (!(seed instanceof Uint8Array) || seed.length !== 96) throw new CryptoFail("bad device seed");
+  const kem = ml_kem1024.keygen(seed.subarray(0, 64));
+  const x = await curveFromSeed("X25519", seed.subarray(64, 96));
+  return { kemPq: { pk: kem.publicKey, sk: kem.secretKey }, kemEc: x };
+}
+export const newDeviceSeed = () => random(96);
+export const newStoreDeviceId = () => hex(random(8));
+// Shown on both devices before history moves: the first 16 hex of SHA3-256(kem_pq ‖ kem_ec), in groups of four.
+export const deviceCode = (kemPq, kemEc) => fpGroups(hex(sha3_256(concat(kemPq, kemEc))).slice(0, 16));
+
+// devices: [{id, name, kem_pq, kem_ec, added}] (any order). Returns {b, s}.
+export async function publishDevices(id, fp, seq, devices, at) {
+  const list = devices.slice().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((d) => ({ id: d.id, name: d.name, kem_pq: d.kem_pq, kem_ec: d.kem_ec, added: d.added }));
+  const raw = canonBytes({ v: 1, t: "devices", user: id.user, fp, seq, at, devices: list });
+  return { b: b64(raw), s: b64(await sign(id, "dcx-chat/v1/devices", raw)) };
+}
+// Someone's device list, checked against their trusted identity. Returns the list object.
+export async function openDevices(entry, pub) {
+  const { raw, obj } = parseSigned(entry.b, 16384 + 4096);
+  if (obj.t !== "devices" || obj.user !== pub.user || obj.fp !== pub.fp || !Number.isSafeInteger(obj.seq) || obj.seq < 1 || !Array.isArray(obj.devices))
+    throw new CryptoFail("device list doesn't match the identity");
+  if (!(await verify(pub, "dcx-chat/v1/devices", raw, unb64(entry.s)))) throw new CryptoFail("device list signature is invalid");
+  const ids = obj.devices.map((d) => d.id);
+  if (ids.some((x, i) => typeof x !== "string" || !/^[0-9a-f]{16}$/.test(x) || (i && ids[i - 1] >= x))) throw new CryptoFail("malformed device list");
+  for (const d of obj.devices) { unb64(d.kem_pq, SIZES.kemPq); unb64(d.kem_ec, SIZES.kemEc); }
+  return obj;
+}
+
+// The key store: aesSeal(deviceKey, aesSeal(storeKey, key, aad), aad). deviceKey is this browser's non-extractable
+// key; storeKey comes from the master, so a copy of the browser profile without the passphrase opens nothing either.
+export const storeKeyFromMaster = (master, user) => hkdfKey(master, utf8(user), "dcx-chat/v1/store-key", ["encrypt", "decrypt"]);
+const storeAad = (user, room, epoch) => utf8("dcx-chat/v1/store|" + user + "|" + room + "|" + epoch);
+export async function sealStored(deviceKey, storeKey, user, room, epoch, key) {
+  const aad = storeAad(user, room, epoch);
+  return aesSeal(deviceKey, await aesSeal(storeKey, key, aad), aad);
+}
+export async function openStored(deviceKey, storeKey, user, room, epoch, sealed, len = 32) {
+  const aad = storeAad(user, room, epoch);
+  const key = await aesOpen(storeKey, await aesOpen(deviceKey, sealed, aad), aad);
+  if (key.length !== len) throw new CryptoFail("stored key has the wrong length");
+  return key;
+}
+// The device's own secrets (its seed) are sealed the same way under a fixed name.
+export const sealDeviceSeed = (deviceKey, storeKey, user, seed) => sealStored(deviceKey, storeKey, user, "device", 0, seed);
+export async function openDeviceSeed(deviceKey, storeKey, user, sealed) {
+  const aad = storeAad(user, "device", 0);
+  const seed = await aesOpen(storeKey, await aesOpen(deviceKey, sealed, aad), aad);
+  if (seed.length !== 96) throw new CryptoFail("device seed has the wrong length");
+  return seed;
+}
+
+// History sync: room keys for another of my devices. keys: [{room, epoch, key: Uint8Array}]; target: {kemPq, kemEc}
+// as raw public keys. Returns the base64 blob.
+const syncAad = (user, from, to) => utf8("dcx-chat/v1/key-sync|" + user + "|" + from + "|" + to);
+export async function sealKeySync(id, from, to, target, keys, at) {
+  const p = canonBytes({ v: 1, t: "key-sync", user: id.user, from, to, at,
+                         keys: keys.map((k) => ({ room: k.room, epoch: k.epoch, key: b64(k.key) })) });
+  const s = await sign(id, "dcx-chat/v1/key-sync", p);
+  const k = random(32);
+  const aad = syncAad(id.user, from, to);
+  const wrapped = await wrapKey(k, target, aad);
+  const kk = await subtle.importKey("raw", k, "AES-GCM", false, ["encrypt"]);
+  wipe(k);
+  return b64(concat(wrapped, await aesSeal(kk, concat(u32be(p.length), p, s), aad)));
+}
+// dev: this device's {kemPq, kemEc}; myPub: my own trusted identity (the package must be signed by it).
+export async function openKeySync(dev, myPub, from, to, blob) {
+  const raw = unb64(blob);
+  if (raw.length < SIZES.wrap + 12 + 4 + 16) throw new CryptoFail("history package too short");
+  const aad = syncAad(myPub.user, from, to);
+  const k = await unwrapKey(raw.subarray(0, SIZES.wrap), dev, aad);
+  const kk = await subtle.importKey("raw", k, "AES-GCM", false, ["decrypt"]);
+  wipe(k);
+  const inner = await aesOpen(kk, raw.subarray(SIZES.wrap), aad);
+  const n = new DataView(inner.buffer, inner.byteOffset).getUint32(0);
+  if (n + 4 + SIZES.sigPqLen + SIZES.sigEcLen !== inner.length) throw new CryptoFail("malformed history package");
+  const p = inner.subarray(4, 4 + n);
+  if (!(await verify(myPub, "dcx-chat/v1/key-sync", p, inner.subarray(4 + n)))) throw new CryptoFail("history package signature is invalid");
+  const obj = JSON.parse(dec.decode(p));
+  if (canon(obj) !== dec.decode(p) || obj.v !== 1 || obj.t !== "key-sync" || obj.user !== myPub.user || obj.from !== from || obj.to !== to || !Array.isArray(obj.keys))
+    throw new CryptoFail("history package doesn't match");
+  return obj.keys.map((x) => ({ room: x.room, epoch: x.epoch, key: unb64(x.key, 32) }));
 }
 
 // ---------------------------------------------------------------------------------------------- messages

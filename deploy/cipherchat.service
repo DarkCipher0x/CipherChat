@@ -12,7 +12,7 @@ ExecStart=/usr/bin/python3 -I /opt/cipherchat/server/cipherchat/server.py serve
 Restart=on-failure
 RestartSec=5
 UMask=0077
-StateDirectory=cipherchat
+StateDirectory=cipherchat cipherchat-shred
 StateDirectoryMode=0700
 
 # Sandboxing: the server only needs its own state directory, its code (read-only) and loopback

@@ -92,6 +92,10 @@ public sealed class Room
     public IReadOnlyList<(string User, string Role)> Members =>
         Info["members"] is JsonArray a ? a.OfType<JsonObject>().Select(m => (m.Str("user"), m.StrOrNull("role") ?? "member")).ToList() : [];
     public long RetentionDays => Info.LongOrNull("retention_days") ?? 0;
+    /// <summary>How long devices keep this room's keys (0 = as long as messages are kept).</summary>
+    public long HistoryDays => Info.LongOrNull("history_days") ?? 0;
+    /// <summary>Whether a new device of a member may get this room's older keys from their other devices.</summary>
+    public bool HistorySync => Info["history_sync"] is not JsonValue v || v.GetValueKind() != JsonValueKind.False;
 
     public int Unread { get; internal set; }
     public bool Loaded { get; internal set; }
@@ -105,6 +109,8 @@ public sealed class Room
     internal readonly HashSet<long> Seqs = new();
     internal readonly HashSet<string> MsgIds = new();
     internal readonly HashSet<long> EpochTried = new();
+    internal readonly HashSet<long> Expired = new();          // keys past the history window, erased from this PC
+    internal bool LeftoverWarned;                              // warned once that the server kept old wraps
     internal readonly Dictionary<string, ChatMessage> Msgs = new();
     internal readonly Dictionary<string, List<(string Kind, string From, long Seq, JsonObject Payload)>> Pending = new();
     internal long Oldest = long.MaxValue;

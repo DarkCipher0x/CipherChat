@@ -70,18 +70,24 @@ object Canon {
     private val strict = Json { isLenient = false }
 
     /** A signed header: base64 of canonical JSON, version 1. Refuses anything that isn't exactly canonical. */
-    fun parseSigned(b64str: String, maxLen: Int): Signed {
+    /** A signed canonical header whose "v" is one of [versions]. */
+    fun parseSigned(b64str: String, maxLen: Int, versions: Set<Int> = V1): Signed {
         val raw = unb64(b64str)
         if (raw.size > maxLen) throw CryptoFail("too large")
         val text = try { Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(raw)).toString() }
                    catch (e: Exception) { throw CryptoFail("malformed header") }
         val obj = try { strict.parseToJsonElement(text) } catch (e: Exception) { throw CryptoFail("malformed header") }
-        if (obj !is JsonObject || (obj["v"] as? JsonPrimitive)?.intOrNull != 1) throw CryptoFail("unsupported version")
+        val v = (obj as? JsonObject)?.get("v") as? JsonPrimitive
+        if (obj !is JsonObject || v == null || v.isString || v.intOrNull !in versions) throw CryptoFail("unsupported version")
         if (encode(obj) != text) throw CryptoFail("header is not canonical")
         return Signed(raw, obj)
     }
 
     class Signed(val raw: ByteArray, val obj: JsonObject)
+
+    val V1 = setOf(1)
+    val V2 = setOf(2)
+    val V1V2 = setOf(1, 2)
 }
 
 // Small typed getters for signed headers (a missing or wrong-typed field is a protocol refusal, never a crash).

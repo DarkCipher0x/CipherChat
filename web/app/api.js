@@ -121,12 +121,12 @@ export async function downloadBlob(roomId, blobId, size) {
 
 // The server holds a poll for up to 25 s; 45 s without an answer means the connection is dead, so give up and retry.
 // sig: the last call signal seen (calls.py); signals newer than it come back in `signals`
-export async function poll(since, rev, sig) {
+export async function poll(since, rev, sig, dev) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 45000);
   let r;
   try {
-    r = await fetch(url("chat/poll") + "?since=" + encodeURIComponent(since) + "&rev=" + encodeURIComponent(rev) + (sig === undefined ? "" : "&sig=" + encodeURIComponent(sig)),
+    r = await fetch(url("chat/poll") + "?since=" + encodeURIComponent(since) + "&rev=" + encodeURIComponent(rev) + (sig === undefined ? "" : "&sig=" + encodeURIComponent(sig)) + (dev ? "&dev=" + encodeURIComponent(dev) : ""),
       { credentials: "same-origin", headers: { "X-Requested-With": "dcx-portal" }, signal: ctl.signal, cache: "no-store" });
   } finally { clearTimeout(timer); }
   const j = await r.json().catch(() => ({}));

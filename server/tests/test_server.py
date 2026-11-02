@@ -11,6 +11,7 @@ import hmac
 import http.client
 import json
 import os
+import re
 import secrets
 import shutil
 import socket
@@ -184,7 +185,9 @@ class Server(unittest.TestCase):
         code, j, _ = self.call("/chat/api/auth/login", {"username": OWNER, "password": "wrong password here 1", "code": totp(self.secrets[OWNER])})
         self.assertEqual(code, 401)
         self.assertEqual(self.call("/chat/api/auth/login", {"username": OWNER, "password": PW, "code": "000000"}, csrf=False)[0], 403)
-        self.assertEqual(self.call("/chat/api/rooms", {"name": "x"}, self.owner(), headers={"Origin": "https://evil.example"})[0], 403)
+        code, j, _ = self.call("/chat/api/rooms", {"name": "x"}, self.owner(), headers={"Origin": "https://evil.example"})
+        self.assertEqual(code, 403)
+        self.assertIn(self.origin, j["error"])                 # says which address the server answers on
         self.assertEqual(self.api("state")[0], 403)                                # no session
 
     def test_03_roles_and_admin_api(self):
@@ -651,6 +654,448 @@ class Server(unittest.TestCase):
         self.assertEqual(self.api("admin/users/invite", {"username": "rita", "role": "member"}, owner)[0], 409)   # a live name stays taken
         time.sleep(1.5)                                                             # the reuse is audited
         self.assertIn(b"reused_deleted_name", self.db_bytes())
+
+    @staticmethod
+    def epoch_pkg(rid, epoch, fp, user=OWNER):
+        """A room key for one recipient as the server can check it (it doesn't verify signatures; clients do)."""
+        wrap = secrets.token_bytes(1568 + 32 + 12 + 32 + 16)
+        hdr = {"v": 1, "t": "epoch", "room": rid, "epoch": epoch, "by": user, "by_fp": fp,
+               "recipients": [{"u": user, "fp": fp, "w": hashlib.sha3_256(wrap).hexdigest()}]}
+        raw = json.dumps(hdr, sort_keys=True, separators=(",", ":")).encode()
+        return {"pkg": {"h": b64(raw), "s": rnd(4627 + 64), "w": {user: b64(wrap)}}}
+
+    @staticmethod
+    def device_list(user, fp, seq, ids):
+        devs = [{"id": i, "name": "device " + i[:4], "kem_pq": rnd(1568), "kem_ec": rnd(32), "added": 1} for i in ids]
+        obj = {"v": 1, "t": "devices", "user": user, "fp": fp, "seq": seq, "at": int(time.time() * 1000), "devices": devs}
+        return {"list": {"b": b64(json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()), "s": rnd(4627 + 64)}}
+
+    @staticmethod
+    def prekey(user, fp, dev, pid=None, life=7 * 86400 * 1000, **over):
+        now = int(time.time() * 1000)
+        obj = {"v": 2, "t": "prekey", "user": user, "fp": fp, "dev": dev, "id": pid or secrets.token_hex(8), "at": now,
+               "exp": now + life, "kem_pq": rnd(1568), "kem_ec": rnd(32)}
+        obj.update(over)
+        return obj["id"], {"b": b64(json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()), "s": rnd(4627 + 64)}
+
+    @staticmethod
+    def epoch_pkg_v2(rid, epoch, fp, lines, user=OWNER, fps=None):
+        """lines: (user, dev, prekey id). A v2 room key as the server can check it."""
+        wraps = {"%s|%s" % (u, d): secrets.token_bytes(1568 + 32 + 12 + 32 + 16) for u, d, _ in lines}
+        rec = [{"u": u, "fp": (fps or {}).get(u, fp), "dev": d, "prekey": p, "w": hashlib.sha3_256(wraps["%s|%s" % (u, d)]).hexdigest()}
+               for u, d, p in lines]
+        hdr = {"v": 2, "t": "epoch", "room": rid, "epoch": epoch, "by": user, "by_fp": fp, "recipients": rec}
+        raw = json.dumps(hdr, sort_keys=True, separators=(",", ":")).encode()
+        return {"pkg": {"h": b64(raw), "s": rnd(4627 + 64), "w": {k: b64(v) for k, v in wraps.items()}}}
+
+    def sql(self, statement, args=()):
+        """Ages a row the way time would (the server is a separate process; SQLite allows a second writer)."""
+        import sqlite3
+        con = sqlite3.connect(os.path.join(self.tmp, "state", "cipherchat.db"), timeout=10)
+        try:
+            con.execute(statement, args)
+            con.commit()
+        finally:
+            con.close()
+
+    def test_23_device_lists_acks_delete_wraps_and_history_sync(self):
+        owner = self.owner()
+        self.api("identity", {"bundle": bundle(OWNER)[0], "backup": backup()}, owner)  # may already exist
+        fp = self.api("backup/fetch", {}, owner)[1]["fp"]
+        code, j = self.api("rooms", {"name": "history", "members": [], "retention_days": 0}, owner)
+        self.assertEqual(code, 200, j)
+        rid = j["id"]
+        epochs = lambda all_=False: self.call("/chat/api/rooms/%s/epochs%s" % (rid, "?all=1" if all_ else ""), None, owner)[1]["items"]  # noqa: E731
+        first = self.epoch_pkg(rid, 1, fp)
+        self.assertEqual(self.api("rooms/%s/epoch" % rid, first, owner)[0], 200)
+        self.sql("PRAGMA wal_checkpoint(TRUNCATE)")
+        self.assertNotIn(first["pkg"]["w"][OWNER].encode(), self.db_bytes())    # stored sealed (shred.py), never as sent
+        a, b = "a" * 16, "b" * 16
+        # No device list yet: compatibility mode, nothing can be acknowledged or deleted
+        self.assertEqual(self.api("rooms/%s/ack" % rid, {"dev": a, "epochs": [1]}, owner)[0], 400)
+        # The list: next number only, for the current identity, devices sorted and well formed
+        self.assertEqual(self.api("keydevices", self.device_list(OWNER, fp, 2, [a, b]), owner)[0], 409)
+        self.assertEqual(self.api("keydevices", self.device_list(OWNER, "0" * 64, 1, [a, b]), owner)[0], 409)
+        self.assertEqual(self.api("keydevices", self.device_list(OWNER, fp, 1, [b, a]), owner)[0], 400)
+        self.assertEqual(self.api("keydevices", self.device_list(OWNER, fp, 1, []), owner)[0], 400)
+        code, j = self.api("keydevices", dict(self.device_list(OWNER, fp, 1, [a, b]), dev=a), owner)
+        self.assertEqual((code, j.get("seq")), (200, 1), j)
+        self.assertEqual(self.api("keydevices", self.device_list(OWNER, fp, 1, [a, b]), owner)[0], 409)   # no replay
+        st = self.api("state", None, owner)[1]
+        me = [d for d in st["directory"] if d["user"] == OWNER][0]
+        self.assertTrue(me["devices"]["b"])
+        self.assertEqual(list(st["me"]["device_seen"]), [a])                      # the day each device was last active
+        # A wrap goes once every listed device holds the key, and the signed header stays
+        code, j = self.api("rooms/%s/ack" % rid, {"dev": a, "epochs": [1, 99]}, owner)
+        self.assertEqual((code, j.get("deleted")), (200, 0), j)
+        self.assertEqual([x["epoch"] for x in epochs()], [1])
+        code, j = self.api("rooms/%s/ack" % rid, {"dev": b, "epochs": [1]}, owner)
+        self.assertEqual((code, j.get("deleted")), (200, 1), j)
+        self.assertEqual(epochs(), [])
+        kept = epochs(True)
+        self.assertEqual([(x["epoch"], x["body"]["w"]) for x in kept], [(1, None)])
+        self.assertTrue(kept[0]["body"]["h"] and kept[0]["body"]["s"])
+        # ...or when it's older than the grace period, acknowledged or not
+        self.assertEqual(self.api("rooms/%s/epoch" % rid, self.epoch_pkg(rid, 2, fp), owner)[0], 200)
+        self.assertEqual(self.api("store/hello", {"dev": a}, owner)[1]["deleted"], 0)
+        self.sql("UPDATE chat_items SET created=created-8*86400 WHERE room_id=? AND kind='epoch' AND epoch=2", (rid,))
+        self.assertEqual(self.api("store/hello", {"dev": a}, owner)[1]["deleted"], 1)
+        # So does a chat session that has been open a while without saying so (an older app, or "this session only")
+        self.assertEqual(self.api("rooms/%s/epoch" % rid, self.epoch_pkg(rid, 3, fp), owner)[0], 200)
+        old = self.login(OWNER, offset=1)
+        self.sql("UPDATE sessions SET created=created-3600 WHERE token_hash=?", (hashlib.sha256(old.encode()).hexdigest(),))
+        for d in (a, b):
+            self.assertEqual(self.api("rooms/%s/ack" % rid, {"dev": d, "epochs": [3]}, owner)[1]["deleted"], 0)
+        self.assertEqual(self.api("store/hello", {"dev": b}, old)[1]["deleted"], 1)    # until it does
+        # A paired app that hasn't said it keeps a key store (an older release) holds every deletion
+        code, j = self.api("devices", {"name": "Old phone"}, owner)
+        self.assertEqual(code, 200, j)
+        token = j["token"]
+        self.assertEqual(self.api("rooms/%s/epoch" % rid, self.epoch_pkg(rid, 4, fp), owner)[0], 200)
+        for d in (a, b):
+            self.assertEqual(self.api("rooms/%s/ack" % rid, {"dev": d, "epochs": [4]}, owner)[1]["deleted"], 0)
+        self.assertEqual([x["epoch"] for x in epochs()], [4])
+        code, _, h = self.call("/chat/api/auth/device", {"token": token})
+        phone = h["set-cookie"].split("=", 1)[1].split(";")[0]
+        self.assertEqual(self.api("store/hello", {"dev": b}, phone)[1]["deleted"], 1)  # once it says so, the wrap goes
+        self.assertEqual(epochs(), [])
+        # History sync: only to a device that asked, never to itself, deleted once collected
+        self.assertEqual(self.api("sync/send", {"to": b, "from": a, "blob": rnd(64), "last": True}, owner)[0], 409)
+        self.assertEqual(self.api("sync/request", {"dev": b}, owner)[0], 200)
+        self.assertEqual(self.api("state", None, owner)[1]["me"]["sync_waiting"], 1)
+        st = self.call("/chat/api/sync?dev=" + a, None, owner)[1]
+        self.assertEqual([r["dev"] for r in st["requests"]], [b])
+        self.assertTrue(self.call("/chat/api/sync?dev=" + b, None, owner)[1]["waiting"])
+        self.assertEqual(self.api("sync/send", {"to": b, "from": b, "blob": rnd(64)}, owner)[0], 400)
+        self.assertEqual(self.api("sync/send", {"to": b, "from": a, "blob": "not base64!"}, owner)[0], 400)
+        self.assertEqual(self.api("sync/send", {"to": b, "from": a, "blob": rnd(64)}, owner)[0], 200)
+        blob = rnd(96)
+        self.assertEqual(self.api("sync/send", {"to": b, "from": a, "blob": blob, "last": True}, owner)[0], 200)
+        self.assertEqual(self.call("/chat/api/sync?dev=" + a, None, owner)[1]["requests"], [])   # the request is answered
+        got = self.call("/chat/api/sync?dev=" + b, None, owner)[1]["packages"]
+        self.assertEqual([(p["from"], p["blob"]) for p in got][-1], (a, blob))
+        for p in got:
+            self.assertEqual(self.api("sync/done", {"id": p["id"]}, owner)[0], 200)
+        self.assertEqual(self.call("/chat/api/sync?dev=" + b, None, owner)[1]["packages"], [])
+        self.assertEqual(self.api("sync/done", {"id": got[0]["id"]}, owner)[0], 404)
+        # Room settings for the history window and sync
+        self.assertEqual(self.api("rooms/%s/update" % rid, {"history_days": 12}, owner)[0], 400)
+        self.assertEqual(self.api("rooms/%s/update" % rid, {"history_sync": "no"}, owner)[0], 400)
+        self.assertEqual(self.api("rooms/%s/update" % rid, {"history_days": 30, "history_sync": False}, owner)[0], 200)
+        room = [r for r in self.api("state", None, owner)[1]["rooms"] if r["id"] == rid][0]
+        self.assertEqual((room["history_days"], room["history_sync"]), (30, False))
+        # Dropping a device from the list drops what it acknowledged
+        self.assertEqual(self.api("keydevices", self.device_list(OWNER, fp, 2, [a]), owner)[0], 200)
+        self.assertEqual(self.api("rooms/%s/ack" % rid, {"dev": b, "epochs": [4]}, owner)[0], 400)
+        # A copy of the database taken afterwards holds no deleted wrap (rows are overwritten, the log is emptied)
+        self.sql("PRAGMA wal_checkpoint(TRUNCATE)")
+        self.assertNotIn(first["pkg"]["w"][OWNER].encode(), self.db_bytes())
+
+    def test_22_no_path_rewraps_an_old_room_key(self):
+        """PREKEYS-DESIGN §3: once wraps are deleted, nothing may make them again. A room key can only be added as the
+        next key period, for the current members, and a stored one is never rewritten."""
+        owner = self.owner()
+        ob, _ = bundle(OWNER)
+        self.api("identity", {"bundle": ob, "backup": backup()}, owner)             # may already exist from test_05
+        fp = self.api("backup/fetch", {}, owner)[1]["fp"]
+        code, j = self.api("rooms", {"name": "rewrap", "members": [], "retention_days": 0}, owner)
+        self.assertEqual(code, 200, j)
+        rid = j["id"]
+        pkg = lambda epoch: self.epoch_pkg(rid, epoch, fp)                      # noqa: E731
+        first = pkg(1)
+        code, j = self.api("rooms/%s/epoch" % rid, first, owner)
+        self.assertEqual((code, j.get("epoch")), (200, 1), j)
+        for again in (first, pkg(1)):                                               # the same period again, replayed or re-made
+            self.assertEqual(self.api("rooms/%s/epoch" % rid, again, owner)[0], 409)
+        self.assertEqual(self.api("rooms/%s/epoch" % rid, pkg(3), owner)[0], 409)  # nor a gap
+        code, j = self.call("/chat/api/rooms/%s/epochs" % rid, None, owner)[:2]
+        self.assertEqual(code, 200)
+        self.assertEqual([x["epoch"] for x in j["items"]], [1])
+        self.assertEqual(j["items"][0]["body"]["w"], first["pkg"]["w"][OWNER])      # the stored wrap is unchanged
+        # The source keeps it that way: one place stores a room key and its wraps, no wrap is ever rewritten, and
+        # nothing rewrites a stored item's body except clearing it (and the one-time move of wraps out of bodies).
+        pkg_dir = os.path.join(HERE, "..", "cipherchat")
+        for name in os.listdir(pkg_dir):
+            if not name.endswith(".py"):
+                continue
+            with open(os.path.join(pkg_dir, name), encoding="utf-8") as fh:
+                src = fh.read()
+            if name == "shred.py":
+                # the one exception: re-sealing a stored wrap under the newest storage key, same row, same bytes
+                self.assertEqual(re.findall(r"UPDATE chat_wraps[^\"]*", src), ["UPDATE chat_wraps SET w=? WHERE seq=? AND username=?"])
+                self.assertIn('(seal(r["seq"], r["username"], w), r["seq"], r["username"])', src)
+                self.assertIn('w = open_(r["seq"], r["username"], r["w"])', src)
+                self.assertEqual(re.findall(r"UPDATE chat_dev_wraps[^\"]*", src),
+                                 ["UPDATE chat_dev_wraps SET w=? WHERE seq=? AND username=? AND dev=?"])
+                self.assertIn('(seal(r["seq"], who, w), r["seq"], r["username"], r["dev"])', src)
+                self.assertIn('w = open_(r["seq"], who, r["w"])', src)
+                self.assertNotRegex(src, r"INSERT[^\"]*chat_wraps|chat_items", name)
+                continue
+            self.assertNotRegex(src, r"UPDATE chat_wraps", name)
+            if name == "chat.py":
+                makers = [m.start() for m in re.finditer(r'_item\(c, [^,]+, "epoch"', src)]
+                self.assertEqual(len(makers), 2)                                    # v1 and v2, nowhere else
+                self.assertTrue(src.index("def post_epoch") < makers[0] < src.index("def _post_epoch_v2") < makers[1] < src.index("def send("))
+                inserts = re.findall(r"INSERT (?:OR IGNORE )?INTO chat_wraps", src)
+                self.assertEqual(len(inserts), 2)                                   # post_epoch and the migration
+                post = src[src.index("def post_epoch"):src.index("def send(")]
+                self.assertIn("INSERT INTO chat_wraps", post)
+                self.assertEqual(len(re.findall(r"INSERT (?:OR \w+ )?INTO chat_dev_wraps", src)), 1)   # _post_epoch_v2 only
+                v2 = src[src.index("def _post_epoch_v2"):src.index("def send(")]
+                self.assertIn("INSERT INTO chat_dev_wraps", v2)
+                self.assertNotIn("UPDATE chat_dev_wraps", src)
+                mig = src[src.index("def migrate"):src.index("# ---", src.index("def migrate"))]
+                self.assertIn("INSERT OR IGNORE INTO chat_wraps", mig)
+                for stmt in re.findall(r"UPDATE chat_items SET [^\"]*", src.replace(mig, "")):
+                    self.assertTrue("body" not in stmt or "body='{}'" in stmt, stmt)
+            else:
+                self.assertNotRegex(src, r"(INSERT INTO|INSERT OR \w+ INTO|UPDATE) chat_(items|wraps|dev_wraps)", name)
+
+    def test_24_old_database_copies_lose_their_wraps(self):
+        """PREKEYS-DESIGN §4.5: wraps are stored under a rolling storage key that is erased after a few days."""
+        owner = self.owner()
+        self.api("identity", {"bundle": bundle(OWNER)[0], "backup": backup()}, owner)  # may already exist
+        fp = self.api("backup/fetch", {}, owner)[1]["fp"]
+        code, j = self.api("rooms", {"name": "shred", "members": [], "retention_days": 0}, owner)
+        self.assertEqual(code, 200, j)
+        rid = j["id"]
+        first = self.epoch_pkg(rid, 1, fp)
+        self.assertEqual(self.api("rooms/%s/epoch" % rid, first, owner)[0], 200)
+        sent = first["pkg"]["w"][OWNER]
+        # on the server: sealed under today's key, in a file outside the state folder; to the member: as sent
+        import sqlite3
+        con = sqlite3.connect(os.path.join(self.tmp, "state", "cipherchat.db"), timeout=10)
+        try:
+            seq, stored = con.execute("SELECT i.seq, w.w FROM chat_wraps w JOIN chat_items i ON i.seq=w.seq WHERE i.room_id=?",
+                                      (rid,)).fetchone()
+        finally:
+            con.close()
+        self.assertTrue(stored.startswith("z1.%d." % (int(time.time()) // 86400)), stored[:12])
+        self.assertTrue(os.path.exists(os.path.join(self.tmp, "state-shred", "shred.keys")))
+        listing = lambda: self.call("/chat/api/rooms/%s/epochs?all=1" % rid, None, owner)[1]["items"]  # noqa: E731
+        self.assertEqual([x["body"]["w"] for x in listing()], [sent])
+        # a sealed wrap moved to another row doesn't open there (the client sees it as deleted)
+        code, j = self.api("rooms/%s/epoch" % rid, self.epoch_pkg(rid, 2, fp), owner)
+        self.assertEqual(code, 200, j)
+        self.sql("UPDATE chat_wraps SET w=? WHERE seq=(SELECT seq FROM chat_items WHERE room_id=? AND epoch=2 AND kind='epoch')",
+                 (stored, rid))
+        self.assertEqual([x["body"]["w"] for x in listing()], [sent, None])
+        # The rotation itself, in-process on a copy (the server's clock can't be moved): a day later the live wrap is
+        # re-sealed under the new key; three days on, the first key is erased and the old copy opens nothing
+        sys.path.insert(0, os.path.join(HERE, "..", "cipherchat"))
+        import shred
+        import types
+        folder = os.path.join(self.tmp, "shred-copy")
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(self.tmp, "state-shred", "shred.keys")) as src, open(os.path.join(folder, "shred.keys"), "w") as dst:
+            dst.write(src.read())
+        fake = types.SimpleNamespace(EXTRA_SWEEPS=[])
+        shred.bind(fake, folder)
+        day = shred.today()
+        db = sqlite3.connect(":memory:")
+        db.row_factory = sqlite3.Row
+        db.execute("CREATE TABLE chat_wraps(seq INTEGER, username TEXT, w TEXT, PRIMARY KEY(seq, username))")
+        db.execute("INSERT INTO chat_wraps VALUES(?,?,?)", (seq, OWNER, stored))
+        db.execute("INSERT INTO chat_wraps VALUES(?,?,?)", (seq + 1000, "kim", "bGVnYWN5"))      # from before shredding
+        old_copy = stored
+        self.assertEqual(shred.open_(seq, OWNER, old_copy), sent)
+        self.assertEqual(shred.sweep(db, day + 1), 0)
+        live = db.execute("SELECT w FROM chat_wraps WHERE seq=?", (seq,)).fetchone()[0]
+        self.assertTrue(live.startswith("z1.%d." % (day + 1)))
+        self.assertTrue(db.execute("SELECT w FROM chat_wraps WHERE seq=?", (seq + 1000,)).fetchone()[0].startswith("z1."))
+        old_key = shred.KEYS[day].hex()
+        self.assertEqual(shred.sweep(db, day + 3), 0)
+        self.assertNotIn(day, shred.KEYS)
+        with open(os.path.join(folder, "shred.keys")) as fh:
+            self.assertNotIn(old_key, fh.read())
+        self.assertIsNone(shred.open_(seq, OWNER, old_copy))                     # the old database copy: gone
+        self.assertEqual(shred.open_(seq, OWNER, db.execute("SELECT w FROM chat_wraps WHERE seq=?", (seq,)).fetchone()[0]), sent)
+        self.assertEqual(shred.open_(seq + 1000, "kim", db.execute("SELECT w FROM chat_wraps WHERE seq=?", (seq + 1000,)).fetchone()[0]), "bGVnYWN5")
+        # a row whose key is gone (the server was off for longer than KEEP_DAYS) opens for nobody: it's dropped
+        db.execute("UPDATE chat_wraps SET w=? WHERE seq=?", (old_copy, seq))
+        self.assertEqual(shred.sweep(db, day + 3), 1)
+        self.assertEqual(fake.WRAP_OPEN, shred.open_)
+
+    def test_25_prekeys_and_per_device_room_keys(self):
+        """Protocol 2 (PROTOCOL.md §11): signed prekeys per device, room keys wrapped per device, fetched and deleted
+        per device, a new key when devices change, and a compatibility key while an older app is signed in."""
+        owner = self.owner()
+        self.api("identity", {"bundle": bundle(OWNER)[0], "backup": backup()}, owner)  # may already exist
+        fp = self.api("backup/fetch", {}, owner)[1]["fp"]
+        me = lambda: [d for d in self.api("state", None, owner)[1]["directory"] if d["user"] == OWNER][0]  # noqa: E731
+        seq = lambda: json.loads(base64.b64decode(me()["devices"]["b"]))["seq"] if me()["devices"] else 0  # noqa: E731
+        dev_of = lambda p: json.loads(base64.b64decode(p["b"]))  # noqa: E731
+        a, b, c3 = "a2" * 8, "b2" * 8, "c2" * 8
+        code, j = self.api("keydevices", dict(self.device_list(OWNER, fp, seq() + 1, [a, b]), dev=a), owner)
+        self.assertEqual(code, 200, j)
+        # prekeys: for this device and identity, sized, at most 8 days
+        pub = lambda dev, pre: self.api("keydevices/prekey", {"dev": dev, "prekey": pre}, owner)[0]  # noqa: E731
+        self.assertEqual(pub(c3, self.prekey(OWNER, fp, c3)[1]), 400)
+        self.assertEqual(pub(a, self.prekey(OWNER, fp, b)[1]), 409)
+        self.assertEqual(pub(a, self.prekey(OWNER, "0" * 64, a)[1]), 409)
+        self.assertEqual(pub(a, self.prekey(OWNER, fp, a, life=9 * 86400 * 1000)[1]), 400)
+        self.assertEqual(pub(a, self.prekey(OWNER, fp, a, life=-1)[1]), 400)
+        self.assertEqual(pub(a, self.prekey(OWNER, fp, a, extra=1)[1]), 409)
+        self.assertEqual(pub(a, self.prekey(OWNER, fp, a, v=1)[1]), 400)
+        self.assertEqual(pub(a, self.prekey(OWNER, fp, a, kem_pq=rnd(100))[1]), 400)
+        self.assertEqual(pub(a, self.prekey(OWNER, fp, a, id="X" * 16)[1]), 400)
+        pa, pre_a = self.prekey(OWNER, fp, a)
+        self.assertEqual(pub(a, pre_a), 200)
+        for _ in range(6):                                                       # only the newest four per device stay
+            pb, pre_b = self.prekey(OWNER, fp, b)
+            self.assertEqual(pub(b, pre_b), 200)
+            time.sleep(0.002)
+        entry = me()
+        self.assertTrue(entry["v2"])
+        ids = [dev_of(p)["dev"] for p in entry["prekeys"]]
+        self.assertEqual((ids.count(a), ids.count(b)), (1, 4))
+        self.assertIn(pb, [dev_of(p)["id"] for p in entry["prekeys"]])
+        # a room with only the owner: a v2 key needs a line for every listed device, sorted, with held prekeys
+        code, j = self.api("rooms", {"name": "perdevice", "members": [], "retention_days": 0}, owner)
+        self.assertEqual(code, 200, j)
+        rid = j["id"]
+        bad = [([(OWNER, b, pb), (OWNER, a, pa)], 400), ([(OWNER, a, pa)], 409), ([(OWNER, a, pa), (OWNER, b, "f" * 16)], 409),
+               ([(OWNER, a, pa), (OWNER, b, pb), (OWNER, c3, pa)], 409), ([(OWNER, a, pa), (OWNER, a, pa), (OWNER, b, pb)], 400)]
+        for lines, want in bad:
+            self.assertEqual(self.api("rooms/%s/epoch" % rid, self.epoch_pkg_v2(rid, 1, fp, lines), owner)[0], want, lines)
+        lines = [(OWNER, a, pa), (OWNER, b, pb)]
+        wrong = self.epoch_pkg_v2(rid, 1, fp, lines)
+        wrong["pkg"]["w"].pop(OWNER + "|" + b)
+        self.assertEqual(self.api("rooms/%s/epoch" % rid, wrong, owner)[0], 400)
+        good = self.epoch_pkg_v2(rid, 1, fp, lines)
+        code, j = self.api("rooms/%s/epoch" % rid, good, owner)
+        self.assertEqual((code, j.get("v")), (200, 2), j)
+        # each device gets only its own wrap, also through the item listing
+        def listing(dev):
+            q = "&dev=" + urllib.parse.quote(dev) if dev else ""
+            return self.call("/chat/api/rooms/%s/epochs?all=1%s" % (rid, q), None, owner)[1]["items"]
+        self.assertEqual(listing(a)[0]["body"]["w"], good["pkg"]["w"][OWNER + "|" + a])
+        self.assertEqual(listing(b)[0]["body"]["w"], good["pkg"]["w"][OWNER + "|" + b])
+        self.assertEqual(listing(a)[0]["body"]["v"], 2)
+        for dev in (None, c3, "zz", "' OR 1=1"):
+            self.assertIsNone(listing(dev)[0]["body"]["w"], dev)
+        items = self.call("/chat/api/rooms/%s/items?dev=%s" % (rid, b), None, owner)[1]["items"]
+        self.assertEqual([x["body"]["w"] for x in items if x["kind"] == "epoch"], [good["pkg"]["w"][OWNER + "|" + b]])
+        self.sql("PRAGMA wal_checkpoint(TRUNCATE)")
+        self.assertNotIn(good["pkg"]["w"][OWNER + "|" + a].encode(), self.db_bytes())       # sealed (shred.py)
+        room = lambda: [r for r in self.api("state", None, owner)[1]["rooms"] if r["id"] == rid][0]  # noqa: E731
+        self.assertFalse(room()["needs_rotation"])
+        # a device's acknowledgement deletes its own wrap at once; the other device's stays
+        code, j = self.api("rooms/%s/ack" % rid, {"dev": a, "epochs": [1]}, owner)
+        self.assertEqual((code, j.get("deleted")), (200, 1), j)
+        self.assertIsNone(listing(a)[0]["body"]["w"])
+        self.assertIsNotNone(listing(b)[0]["body"]["w"])
+        # adding (or removing) a device makes the per-device key stale: the next sender rotates
+        self.assertEqual(self.api("keydevices", dict(self.device_list(OWNER, fp, seq() + 1, [a, b, c3]), dev=a), owner)[0], 200)
+        self.assertTrue(room()["needs_rotation"])
+        self.assertEqual(self.api("rooms/%s/epoch" % rid, self.epoch_pkg_v2(rid, 2, fp, lines), owner)[0], 409)  # c3 missing
+        pc, pre_c = self.prekey(OWNER, fp, c3)
+        self.assertEqual(pub(c3, pre_c), 200)
+        self.assertEqual(self.api("rooms/%s/epoch" % rid, self.epoch_pkg_v2(rid, 2, fp, lines + [(OWNER, c3, pc)]), owner)[0], 200)
+        self.assertFalse(room()["needs_rotation"])
+        # a v1 key is still accepted (compatibility), and clears the per-device record
+        self.assertEqual(self.api("rooms/%s/epoch" % rid, self.epoch_pkg(rid, 3, fp), owner)[0], 200)
+        self.assertFalse(room()["needs_rotation"])
+        # an older app (paired, no key store): v2 is refused with a hint, and the directory says so, until it says
+        # it keeps a key store
+        code, j = self.api("devices", {"name": "Old app"}, owner)
+        self.assertEqual(code, 200, j)
+        phone = self.call("/chat/api/auth/device", {"token": j["token"]})[2]["set-cookie"].split("=", 1)[1].split(";")[0]
+        self.assertFalse(me()["v2"])
+        code, j = self.api("rooms/%s/epoch" % rid, self.epoch_pkg_v2(rid, 4, fp, lines + [(OWNER, c3, pc)]), owner)
+        self.assertEqual((code, j.get("v1")), (409, True), j)
+        self.assertEqual(self.api("store/hello", {"dev": c3}, phone)[0], 200)
+        self.assertTrue(me()["v2"])
+        self.assertEqual(self.api("rooms/%s/epoch" % rid, self.epoch_pkg_v2(rid, 4, fp, lines + [(OWNER, c3, pc)]), owner)[0], 200)
+        self.assertFalse(room()["needs_rotation"])
+        # an older app that signs in while the key is per-device can't open it: the room needs a compatibility key,
+        # sending under the per-device key is refused, and the v1 key that follows ends it (no loop)
+        code, j = self.api("devices", {"name": "Old app 2"}, owner)
+        self.assertEqual(code, 200, j)
+        old = self.call("/chat/api/auth/device", {"token": j["token"]})[2]["set-cookie"].split("=", 1)[1].split(";")[0]
+        self.assertTrue(room()["needs_rotation"])
+        hdr = {"v": 1, "t": "msg", "room": rid, "from": OWNER, "from_fp": fp, "id": secrets.token_urlsafe(16)[:22],
+               "at": int(time.time() * 1000), "epoch": 4}
+        msg = {"msg": {"h": b64(json.dumps(hdr, sort_keys=True, separators=(",", ":")).encode()), "c": rnd(64), "s": rnd(4627 + 64)}}
+        code, j = self.api("rooms/%s/send" % rid, msg, owner)
+        self.assertEqual((code, j.get("rotate")), (409, True), j)
+        self.assertTrue([r for r in self.api("state", None, old)[1]["rooms"] if r["id"] == rid][0]["needs_rotation"])
+        code, j = self.api("rooms/%s/epoch" % rid, self.epoch_pkg_v2(rid, 5, fp, lines + [(OWNER, c3, pc)]), owner)
+        self.assertEqual((code, j.get("v1")), (409, True), j)
+        self.assertEqual(self.api("rooms/%s/epoch" % rid, self.epoch_pkg(rid, 5, fp), old)[0], 200)     # the old app's own key
+        self.assertFalse(room()["needs_rotation"])
+        hdr["epoch"] = 5
+        msg["msg"]["h"] = b64(json.dumps(hdr, sort_keys=True, separators=(",", ":")).encode())
+        self.assertEqual(self.api("rooms/%s/send" % rid, msg, owner)[0], 200)
+        self.assertEqual(self.api("store/hello", {"dev": a}, old)[0], 200)                                # updated: no longer held
+        self.assertFalse(room()["needs_rotation"])                                                          # a v1 key stays
+        # removing a device drops its prekeys
+        self.assertEqual(self.api("keydevices", dict(self.device_list(OWNER, fp, seq() + 1, [a, b]), dev=a), owner)[0], 200)
+        self.assertNotIn(c3, [dev_of(p)["dev"] for p in me()["prekeys"]])
+
+    def test_26_wraps_are_sealed_before_the_server_answers(self):
+        """An upgrade moves 0.1.2's wraps out of the key items into chat_wraps, and the installer backs up right after
+        the health check: so the server seals every wrap at start-up, not only at its first sweep 10 minutes later."""
+        owner = self.owner()
+        self.api("identity", {"bundle": bundle(OWNER)[0], "backup": backup()}, owner)  # may already exist
+        fp = self.api("backup/fetch", {}, owner)[1]["fp"]
+        code, j = self.api("rooms", {"name": "startup", "members": [], "retention_days": 0}, owner)
+        self.assertEqual(code, 200, j)
+        rid = j["id"]
+        for n in (1, 2):
+            self.assertEqual(self.api("rooms/%s/epoch" % rid, self.epoch_pkg(rid, n, fp), owner)[0], 200)
+        # a copy of the database with its wraps back in their 0.1.2 forms: one inside its key item, the rest unsealed
+        import sqlite3
+        state = os.path.join(self.tmp, "state26")
+        os.makedirs(state)
+        src = sqlite3.connect(os.path.join(self.tmp, "state", "cipherchat.db"), timeout=10)
+        dst = sqlite3.connect(os.path.join(state, "cipherchat.db"))
+        try:
+            src.backup(dst)
+            seq, body = dst.execute("SELECT seq, body FROM chat_items WHERE room_id=? AND epoch=1 AND kind='epoch'", (rid,)).fetchone()
+            old = rnd(1568 + 32 + 12 + 32 + 16)
+            dst.execute("UPDATE chat_items SET body=? WHERE seq=?", (json.dumps(dict(json.loads(body), w={OWNER: old})), seq))
+            dst.execute("DELETE FROM chat_wraps WHERE seq=?", (seq,))
+            dst.execute("UPDATE chat_wraps SET w=?", (rnd(1568 + 32 + 12 + 32 + 16),))
+            dst.commit()
+            plain = dst.execute("SELECT COUNT(*) FROM chat_wraps").fetchone()[0]
+        finally:
+            dst.close(); src.close()
+        self.assertGreater(plain, 1)
+        port = free_port()
+        env = dict(self.env, CIPHERCHAT_STATE_DIR=state, CIPHERCHAT_SHRED_DIR=os.path.join(self.tmp, "state26-shred"),
+                   CIPHERCHAT_LISTEN="127.0.0.1:%d" % port, CIPHERCHAT_ORIGIN="http://127.0.0.1:%d" % port)
+        proc = subprocess.Popen([sys.executable, "-I", SERVER, "serve"], env=env, stderr=subprocess.DEVNULL)
+        try:
+            for _ in range(100):
+                try:
+                    con = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+                    try:
+                        con.request("GET", "/healthz")
+                        if con.getresponse().status == 200:
+                            break
+                    finally:
+                        con.close()
+                except OSError:
+                    time.sleep(0.1)
+            else:
+                self.fail("the second server didn't start")
+            # nothing has been asked of it but its health: every wrap is already sealed, the moved one included
+            con = sqlite3.connect(os.path.join(state, "cipherchat.db"), timeout=10)
+            try:
+                rows = con.execute("SELECT seq, w FROM chat_wraps").fetchall()
+                body = con.execute("SELECT body FROM chat_items WHERE seq=?", (seq,)).fetchone()[0]
+            finally:
+                con.close()
+            self.assertEqual(len(rows), plain + 1)
+            self.assertIn(seq, [r[0] for r in rows])
+            self.assertEqual([r for r in rows if not r[1].startswith("z1.")], [])
+            self.assertNotIn('"w"', body)
+            with open(os.path.join(state, "cipherchat.db"), "rb") as f:
+                self.assertNotIn(old.encode(), f.read())             # overwritten (secure_delete), not left in free pages
+        finally:
+            proc.terminate()
+            proc.wait(10)
 
     # ------------------------------------------------------------------ add-ons (addons.py)
     def addon_call(self, user, key, method, target, body=None, ts=None, nonce=None, sign_hash=None, headers=None, ip=None):
